@@ -1,0 +1,9 @@
+.venv/
+venv/
+venv_new/
+**/*Zone.Identifier
+*Zone.Identifier
+**/venv/
+**/.venv/
+**/venv_new/
+**/node_modules/

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import { ChunkVisualizer } from './components/ChunkVisualizer/ChunkVisualizer';
 import { GraphViewer } from './components/GraphViewer/GraphViewer';
+import { FusionControls } from './components/FusionControls/FusionControls';
 import { documentApi, chunkingApi, graphApi, queryApi } from './services/api';
 import type { Document, Chunk, Entity, Relationship, ChunkingRequest } from './types';
 
@@ -26,6 +27,8 @@ function App() {
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<any[]>([]);
   const [processingStatus, setProcessingStatus] = useState<string>('');
+  const [fusionConfig, setFusionConfig] = useState<any>(null);
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   // Load documents on mount
   useEffect(() => {
@@ -255,8 +258,10 @@ function App() {
       setError(null);
       
       const response = await queryApi.query(queryText, {
-        max_results: 10,
-        retrieval_strategy: 'hybrid'
+        max_results: fusionConfig?.final_top_k || 10,
+        retrieval_strategy: fusionConfig?.auto_strategy ? undefined : 'hybrid',
+        fusion_config: fusionConfig,
+        preset: selectedPreset
       });
       
       setQueryResults(response.results);
@@ -267,6 +272,15 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fusion configuration handlers
+  const handleFusionConfigChange = (config: any) => {
+    setFusionConfig(config);
+  };
+
+  const handlePresetSelect = (preset: string) => {
+    setSelectedPreset(preset);
   };
 
   // Chunk selection handler
@@ -837,28 +851,38 @@ function App() {
               Query Interface
             </h2>
             
-            {/* Query Input */}
-            <div className="mb-8 p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-200">
-              <label className="block text-lg font-semibold text-gray-700 mb-4">
-                What would you like to know?
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={queryText}
-                  onChange={(e) => setQueryText(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleQuery()}
-                  placeholder="Ask a question about your documents..."
-                  className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-lg"
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+              {/* Query Input - Takes up 2 columns on large screens */}
+              <div className="lg:col-span-2 p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-200">
+                <label className="block text-lg font-semibold text-gray-700 mb-4">
+                  What would you like to know?
+                </label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={queryText}
+                    onChange={(e) => setQueryText(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleQuery()}
+                    placeholder="Ask a question about your documents..."
+                    className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-lg"
+                  />
+                  <button
+                    onClick={handleQuery}
+                    disabled={loading || !queryText.trim()}
+                    className="px-8 py-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg shadow-md hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 transition-all duration-200 transform hover:scale-105 font-semibold"
+                  >
+                    <span className="text-xl mr-2">🔎</span>
+                    Search
+                  </button>
+                </div>
+              </div>
+              
+              {/* Fusion Controls - Takes up 1 column on large screens */}
+              <div className="lg:col-span-1">
+                <FusionControls
+                  onConfigChange={handleFusionConfigChange}
+                  onPresetSelect={handlePresetSelect}
                 />
-                <button
-                  onClick={handleQuery}
-                  disabled={loading || !queryText.trim()}
-                  className="px-8 py-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg shadow-md hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 transition-all duration-200 transform hover:scale-105 font-semibold"
-                >
-                  <span className="text-xl mr-2">🔎</span>
-                  Search
-                </button>
               </div>
             </div>
 

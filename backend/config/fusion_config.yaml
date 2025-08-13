@@ -1,0 +1,152 @@
+# Tunable Fusion Configuration for RAG Visualizer
+
+fusion:
+  # Core weights for combining vector and graph retrieval
+  vector_weight: 0.7  # 0-1 weight for vector search (graph_weight = 1 - vector_weight)
+  graph_weight: 0.3   # Automatically calculated as 1 - vector_weight
+
+  # Retrieval counts - how many results to fetch from each source
+  vector_top_k: 20    # Number of results from vector search
+  graph_top_k: 15     # Number of results from graph traversal
+  final_top_k: 10     # Final number of results to return
+
+  # Chunk parameters for optimal retrieval
+  chunk_size: 400     # Based on research: 200-400 optimal for most tasks
+  chunk_overlap: 50   # Overlap between consecutive chunks
+  
+  # Graph traversal parameters
+  graph_confidence_threshold: 0.6  # Minimum confidence for graph edges
+  graph_expansion_depth: 2         # How many hops in graph traversal
+  entity_relevance_threshold: 0.7  # Minimum relevance for entities
+  
+  # Reranking configuration
+  use_reranker: true                               # Enable/disable cross-encoder reranking
+  reranker_weight: 0.5                            # Weight for reranker scores
+  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Model for reranking
+  
+  # Context optimization
+  context_budget: 8000        # Maximum tokens for context window
+  prioritize_summaries: true  # Give preference to summary chunks
+  summary_boost: 1.2          # Score multiplier for summary chunks
+  
+  # Adaptive strategy selection
+  auto_strategy: true              # Auto-select vector/graph/hybrid based on query
+  force_hybrid_threshold: 0.5      # Confidence below this uses hybrid
+  
+  # Strategy-specific configurations
+  strategies:
+    vector:
+      enabled: true
+      similarity_threshold: 0.7
+      use_mmr: true                # Maximum Marginal Relevance for diversity
+      mmr_lambda: 0.7              # Balance between relevance and diversity
+      
+    graph:
+      enabled: true
+      min_entity_frequency: 2      # Minimum frequency for entity consideration
+      max_traversal_nodes: 100     # Maximum nodes to explore
+      edge_weight_threshold: 0.5   # Minimum edge weight to traverse
+      
+    hybrid:
+      enabled: true
+      merge_strategy: "weighted"   # "weighted", "reciprocal_rank", or "normalized"
+      duplicate_handling: "max"     # "max", "average", or "sum" for duplicate scores
+      
+  # Query analysis parameters
+  query_analysis:
+    conceptual_keywords:
+      - "relationship"
+      - "compare"
+      - "difference"
+      - "versus"
+      - "vs"
+      - "better than"
+      - "trade-off"
+      - "when to use"
+      - "architecture"
+      - "overview"
+      - "explain"
+      - "concept"
+      - "how does"
+      - "why"
+      - "related"
+      - "connection"
+      - "between"
+      
+    specific_keywords:
+      - "code"
+      - "implement"
+      - "example"
+      - "snippet"
+      - "function"
+      - "class"
+      - "api"
+      - "syntax"
+      - "error"
+      - "specific"
+      - "exact"
+      - "precise"
+      - "step"
+      - "command"
+      - "parameter"
+      - "configuration"
+      - "setting"
+      
+  # Hierarchical retrieval tuning
+  hierarchical:
+    include_parent_context: true
+    include_sibling_context: false
+    parent_weight_boost: 1.05
+    sibling_weight_boost: 1.02
+    section_weight: 1.1
+    
+  # Performance optimizations
+  performance:
+    cache_embeddings: true
+    cache_ttl: 3600              # Cache time-to-live in seconds
+    batch_size: 100              # Batch size for processing
+    parallel_retrieval: true     # Run vector and graph retrieval in parallel
+    
+  # Evaluation and monitoring
+  evaluation:
+    track_metrics: true
+    log_retrieval_paths: true
+    sample_rate: 0.1             # Sample rate for detailed logging
+    
+# Preset configurations for different use cases
+presets:
+  technical_documentation:
+    vector_weight: 0.8
+    graph_weight: 0.2
+    chunk_size: 600
+    prioritize_summaries: false
+    use_reranker: true
+    
+  conceptual_learning:
+    vector_weight: 0.3
+    graph_weight: 0.7
+    graph_expansion_depth: 3
+    entity_relevance_threshold: 0.6
+    prioritize_summaries: true
+    
+  code_search:
+    vector_weight: 0.9
+    graph_weight: 0.1
+    chunk_size: 400
+    chunk_overlap: 100
+    use_reranker: false
+    
+  research_papers:
+    vector_weight: 0.6
+    graph_weight: 0.4
+    chunk_size: 800
+    context_budget: 12000
+    use_reranker: true
+    summary_boost: 1.5
+    
+  qa_chatbot:
+    vector_weight: 0.5
+    graph_weight: 0.5
+    final_top_k: 5
+    context_budget: 4000
+    auto_strategy: true

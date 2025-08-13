@@ -102,6 +102,8 @@ export const queryApi = {
     options: {
       max_results?: number;
       retrieval_strategy?: 'vector' | 'graph' | 'hybrid';
+      fusion_config?: any;
+      preset?: string;
     } = {}
   ) => {
     const response = await api.post('/api/query', {
@@ -110,7 +112,30 @@ export const queryApi = {
       retrieval_strategy: options.retrieval_strategy || 'hybrid',
       include_metadata: true,
       rerank: true,
+      fusion_config: options.fusion_config,
+      preset: options.preset,
     });
+    return response.data;
+  },
+
+  // Update fusion configuration
+  updateFusionConfig: async (config: any) => {
+    const response = await api.post('/api/fusion/tune', config);
+    return response.data;
+  },
+
+  // Evaluate fusion configurations
+  evaluateFusion: async (query: string, groundTruth: string[]) => {
+    const response = await api.post('/api/fusion/evaluate', {
+      query,
+      ground_truth: groundTruth,
+    });
+    return response.data;
+  },
+
+  // Get current fusion configuration
+  getFusionConfig: async () => {
+    const response = await api.get('/api/fusion/config');
     return response.data;
   },
 };
