@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(curl:*)",
+      "Bash(pip:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:)",
+      "Bash(source:*)",
+      "Bash(mkdir:*)",
+      "Bash(chmod:*)",
+      "Bash(./start.sh:*)",
+      "Bash(./stop.sh)",
+      "Bash(pkill:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(cat:*)",
+      "Bash(env)",
+      "Bash(unset:*)",
+      "Bash(redis-server:*)",
+      "Bash(docker run:*)",
+      "Bash(lsof:*)",
+      "Bash(sed:*)",
+      "Bash(bash:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

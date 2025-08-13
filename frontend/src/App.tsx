@@ -318,7 +318,7 @@ function App() {
                 onClick={async () => {
                   if (confirm('Are you sure you want to delete ALL data? This cannot be undone.')) {
                     try {
-                      const response = await fetch('http://localhost:8745/api/clear-all', {
+                      const response = await fetch('http://localhost:8734/api/clear-all', {
                         method: 'DELETE',
                       });
                       if (response.ok) {
@@ -727,7 +727,7 @@ function App() {
                       onClick={async () => {
                         try {
                           setLoading(true);
-                          const response = await fetch('http://localhost:8745/api/graph/link-documents', {
+                          const response = await fetch('http://localhost:8734/api/graph/link-documents', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' }
                           });

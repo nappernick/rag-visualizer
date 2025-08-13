@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 
 # Kill any existing processes on our ports
 echo "Cleaning up existing processes..."
-pkill -f "uvicorn.*8745" 2>/dev/null
+pkill -f "uvicorn.*8734" 2>/dev/null
 pkill -f "vite.*5892" 2>/dev/null
 sleep 2
 
@@ -44,9 +44,9 @@ else
 fi
 
 # Start backend
-echo "Starting backend on port 8745..."
+echo "Starting backend on port 8734..."
 cd backend
-python3 -m uvicorn src.main:app --host 0.0.0.0 --port 8745 --reload > ../backend.log 2>&1 &
+python3 -m uvicorn src.main:app --host 0.0.0.0 --port 8734 --reload > ../backend.log 2>&1 &
 BACKEND_PID=$!
 echo "Backend PID: $BACKEND_PID"
 
@@ -54,8 +54,8 @@ echo "Backend PID: $BACKEND_PID"
 echo "Waiting for backend to initialize..."
 for i in {1..10}; do
     sleep 1
-    if curl -s http://localhost:8745/health > /dev/null 2>&1; then
-        echo "✅ Backend is running on http://localhost:8745"
+    if curl -s http://localhost:8734/health > /dev/null 2>&1; then
+        echo "✅ Backend is running on http://localhost:8734"
         break
     fi
     if [ $i -eq 10 ]; then
@@ -98,7 +98,7 @@ echo $FRONTEND_PID > frontend.pid
 
 echo ""
 echo "✅ System started successfully!"
-echo "   Backend:  http://localhost:8745"
+echo "   Backend:  http://localhost:8734"
 echo "   Frontend: http://localhost:5892"
 echo ""
 echo "📝 Logs:"
