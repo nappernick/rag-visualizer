@@ -1,0 +1,40 @@
+# General
+.DS_Store
+Thumbs.db
+.env
+.env.*
+*.pid
+*.log
+*:Zone.Identifier
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Node / Frontend
+node_modules/
+dist/
+.cache/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite
+.vite/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+

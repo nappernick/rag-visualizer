@@ -1,0 +1,30 @@
+Advanced RAG Systems Documentation
+
+This document describes advanced retrieval-augmented generation (RAG) systems and their components.
+
+Vector Databases:
+- Pinecone provides managed vector search with automatic scaling
+- Weaviate offers open-source vector search with GraphQL API
+- Qdrant delivers high-performance vector similarity search
+- Milvus supports billion-scale vector data management
+
+Language Models:
+- GPT-4 from OpenAI offers advanced reasoning capabilities
+- Claude from Anthropic provides safe and helpful AI assistance
+- PaLM from Google enables multilingual understanding
+- LLaMA from Meta provides open-source foundation models
+
+RAG Pipeline Components:
+- Document loaders extract text from various formats
+- Text splitters chunk documents into manageable pieces
+- Embedding models convert text to vector representations
+- Retrievers find relevant context from vector stores
+- Generators produce answers using retrieved context
+
+Integration Frameworks:
+- LangChain orchestrates LLM applications
+- LlamaIndex manages document indexing and retrieval
+- Haystack provides end-to-end NLP pipelines
+- Semantic Kernel from Microsoft enables AI orchestration
+
+These components work together to create powerful RAG applications that combine the benefits of retrieval-based and generative AI approaches.

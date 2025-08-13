@@ -1,0 +1,71 @@
+# RAG Visualizer Configuration
+
+app:
+  name: "RAG Visualizer"
+  version: "1.0.0"
+  debug: true
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://localhost:3000"
+    - "http://localhost:5892"
+
+database:
+  url: "postgresql://rag_user:rag_pass@localhost:5432/rag_visualizer"
+  pool_size: 10
+  max_overflow: 20
+
+vector_store:
+  provider: "qdrant"
+  host: "localhost"
+  port: 6333
+  collection_name: "rag_chunks"
+  embedding_dim: 1536
+
+graph_store:
+  provider: "neo4j"
+  uri: "bolt://localhost:7687"
+  username: "neo4j"
+  password: "password"
+  database: "neo4j"
+
+embedding:
+  provider: "openai"  # or "local"
+  model: "text-embedding-3-small"
+  batch_size: 100
+
+chunking:
+  strategies:
+    - "standard"
+    - "hierarchical"
+    - "semantic"
+  default_strategy: "hierarchical"
+  max_chunk_size: 800
+  chunk_overlap: 100
+  min_chunk_size: 100
+
+retrieval:
+  max_results: 10
+  context_budget: 8000
+  hybrid_alpha: 0.7  # Weight for vector vs graph
+  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  strategies:
+    vector:
+      enabled: true
+      top_k: 20
+    graph:
+      enabled: true
+      max_depth: 2
+      entity_similarity_threshold: 0.7
+    hybrid:
+      enabled: true
+      merge_strategy: "weighted"
+
+graph_extraction:
+  use_spacy: false
+  spacy_model: "en_core_web_sm"
+  extract_technical_entities: true
+  min_entity_frequency: 2
+  max_entities_per_chunk: 50
+  relation_extraction:
+    enabled: true
+    min_cooccurrence: 1
