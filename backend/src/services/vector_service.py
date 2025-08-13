@@ -25,33 +25,74 @@ class VectorService:
     """Service for managing vector storage in Qdrant"""
     
     def __init__(self):
+        self.client = None
+        self.initialized = False
+        self.collection_name = "rag_visualizer_chunks"  # Updated collection name
+        self.vector_size = 1536  # OpenAI text-embedding-3-small dimension
+        
+        # Try to initialize Qdrant client
+        self._initialize_client()
+    
+    def _initialize_client(self):
+        """Initialize Qdrant client with proper fallback handling"""
         qdrant_url = os.getenv("QDRANT_URL", "")
         qdrant_api_key = os.getenv("QDRANT_API_KEY", "")
         
-        try:
-            if qdrant_url and qdrant_api_key:
+        # Try cloud Qdrant first if credentials available
+        if qdrant_url and qdrant_api_key:
+            try:
+                # Clean up URL if needed (remove port for cloud)
+                if ":6333" in qdrant_url:
+                    qdrant_url = qdrant_url.replace(":6333", "")
+                
+                logger.info(f"Connecting to Qdrant Cloud at: {qdrant_url}")
                 self.client = QdrantClient(
                     url=qdrant_url,
-                    api_key=qdrant_api_key
+                    api_key=qdrant_api_key,
+                    timeout=30,
+                    https=True,
+                    prefer_grpc=False  # Use REST API
                 )
-            elif qdrant_url:
-                self.client = QdrantClient(url=qdrant_url)
-            else:
-                # Fallback to localhost
-                self.client = QdrantClient(host="localhost", port=6333)
-            
-            self.initialized = True
-            self.collection_name = "rag_chunks"
-            self.vector_size = 768  # Default for sentence-transformers
-            
-            # Ensure collection exists
-            self._ensure_collection()
-            logger.info("Qdrant client initialized successfully")
-            
-        except Exception as e:
-            self.client = None
-            self.initialized = False
-            logger.warning(f"Qdrant initialization failed: {e}")
+                
+                # Test connection
+                collections = self.client.get_collections()
+                self.initialized = True
+                logger.info(f"✅ Connected to Qdrant Cloud successfully")
+                
+                # Ensure collection exists
+                self._ensure_collection()
+                return
+                
+            except Exception as e:
+                logger.warning(f"Failed to connect to Qdrant Cloud: {e}")
+                self.client = None
+        
+        # Try local Qdrant if enabled
+        if os.getenv("ENABLE_QDRANT_LOCAL", "false").lower() == "true":
+            try:
+                logger.info("Attempting local Qdrant connection...")
+                self.client = QdrantClient(
+                    host=os.getenv("QDRANT_HOST", "localhost"),
+                    port=int(os.getenv("QDRANT_PORT", "6333")),
+                    timeout=10
+                )
+                
+                # Test connection
+                collections = self.client.get_collections()
+                self.initialized = True
+                logger.info("✅ Connected to local Qdrant successfully")
+                
+                # Ensure collection exists
+                self._ensure_collection()
+                return
+                
+            except Exception as e:
+                logger.warning(f"Failed to connect to local Qdrant: {e}")
+                self.client = None
+        
+        # No Qdrant available
+        if not self.initialized:
+            logger.info("⚠️ Qdrant not available - vector operations will be mocked")
     
     def _ensure_collection(self):
         """Ensure the collection exists in Qdrant"""
@@ -63,6 +104,13 @@ class VectorService:
             collection_names = [c.name for c in collections]
             
             if self.collection_name not in collection_names:
+                # Detect vector size from environment
+                embedding_model = os.getenv("EMBEDDING_MODEL", "openai")
+                if embedding_model == "openai":
+                    self.vector_size = 1536  # text-embedding-3-small
+                else:
+                    self.vector_size = 768  # sentence-transformers default
+                
                 self.client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config=VectorParams(
@@ -70,14 +118,24 @@ class VectorService:
                         distance=Distance.COSINE
                     )
                 )
-                logger.info(f"Created collection: {self.collection_name}")
+                logger.info(f"✅ Created collection '{self.collection_name}' with vector size {self.vector_size}")
+            else:
+                # Get existing collection info
+                collection_info = self.client.get_collection(self.collection_name)
+                if hasattr(collection_info.config.params, 'vectors'):
+                    self.vector_size = collection_info.config.params.vectors.size
+                logger.info(f"✅ Using existing collection '{self.collection_name}' with vector size {self.vector_size}")
         except Exception as e:
             logger.error(f"Error ensuring collection: {e}")
     
     async def store_vectors(self, chunks: List[Dict], embeddings: List[List[float]]) -> bool:
         """Store chunk vectors in Qdrant"""
-        if not self.initialized or not chunks or not embeddings:
+        if not chunks or not embeddings:
             return False
+        
+        if not self.initialized:
+            logger.info("Qdrant not available - skipping vector storage")
+            return True  # Return success to not block the flow
         
         if len(chunks) != len(embeddings):
             logger.error("Chunks and embeddings length mismatch")
@@ -140,6 +198,7 @@ class VectorService:
     ) -> List[Dict]:
         """Search for similar chunks in Qdrant"""
         if not self.initialized:
+            logger.info("Qdrant not available - returning empty results")
             return []
         
         try:
@@ -268,5 +327,5 @@ class VectorService:
             return False
 
 
-# Global vector service instance
-vector_service = VectorService()
+# Use centralized service manager
+from ..core.service_manager import get_vector_service

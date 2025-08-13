@@ -10,9 +10,19 @@ from ..core.embedding.embedder import Embedder
 
 router = APIRouter(prefix="/api/fusion", tags=["fusion"])
 
-# Initialize fusion controller
-fusion_controller = FusionController()
-embedder = Embedder({})  # Initialize with default config
+# Dependency injection for lazy initialization
+def get_fusion_controller():
+    """Get or create fusion controller instance"""
+    if not hasattr(get_fusion_controller, "_instance"):
+        get_fusion_controller._instance = FusionController()
+    return get_fusion_controller._instance
+
+
+def get_embedder():
+    """Get or create embedder instance"""
+    if not hasattr(get_embedder, "_instance"):
+        get_embedder._instance = Embedder({})  # Initialize with default config
+    return get_embedder._instance
 
 
 class FusionParams(BaseModel):
@@ -52,7 +62,7 @@ class QueryWithFusion(BaseModel):
 
 
 @router.get("/config")
-async def get_fusion_config():
+async def get_fusion_config(fusion_controller: FusionController = Depends(get_fusion_controller)):
     """Get current fusion configuration"""
     return {
         "status": "ok",
@@ -62,7 +72,7 @@ async def get_fusion_config():
 
 
 @router.post("/tune")
-async def tune_fusion(params: FusionParams):
+async def tune_fusion(params: FusionParams, fusion_controller: FusionController = Depends(get_fusion_controller)):
     """Update fusion configuration dynamically"""
     try:
         # Convert params to dict, excluding None values
@@ -86,7 +96,7 @@ async def tune_fusion(params: FusionParams):
 
 
 @router.post("/preset/{preset_name}")
-async def apply_preset(preset_name: str):
+async def apply_preset(preset_name: str, fusion_controller: FusionController = Depends(get_fusion_controller)):
     """Apply a predefined fusion preset"""
     try:
         fusion_controller.apply_preset(preset_name)
@@ -100,7 +110,9 @@ async def apply_preset(preset_name: str):
 
 
 @router.post("/evaluate")
-async def evaluate_fusion(request: EvaluationRequest):
+async def evaluate_fusion(request: EvaluationRequest, 
+                         fusion_controller: FusionController = Depends(get_fusion_controller),
+                         embedder: Embedder = Depends(get_embedder)):
     """Evaluate different fusion configurations"""
     try:
         # Generate embeddings for the query
@@ -133,7 +145,9 @@ async def evaluate_fusion(request: EvaluationRequest):
 
 
 @router.post("/query")
-async def query_with_fusion(request: QueryWithFusion):
+async def query_with_fusion(request: QueryWithFusion,
+                           fusion_controller: FusionController = Depends(get_fusion_controller),
+                           embedder: Embedder = Depends(get_embedder)):
     """Execute query with custom fusion configuration"""
     try:
         # Generate query embedding
@@ -179,7 +193,7 @@ async def query_with_fusion(request: QueryWithFusion):
 
 
 @router.get("/metrics")
-async def get_fusion_metrics():
+async def get_fusion_metrics(fusion_controller: FusionController = Depends(get_fusion_controller)):
     """Get metrics and statistics about fusion performance"""
     return {
         "status": "ok",
@@ -200,7 +214,9 @@ async def get_fusion_metrics():
 async def optimize_fusion(
     queries: List[str],
     ground_truths: List[List[str]],
-    optimization_metric: str = "f1"
+    optimization_metric: str = "f1",
+    fusion_controller: FusionController = Depends(get_fusion_controller),
+    embedder: Embedder = Depends(get_embedder)
 ):
     """Automatically optimize fusion configuration based on evaluation data"""
     try:

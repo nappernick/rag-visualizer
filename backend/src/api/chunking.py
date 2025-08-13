@@ -13,9 +13,9 @@ from ..core.chunking.semantic_chunker import SemanticChunker
 from ..core.chunking.hierarchical import HierarchicalChunker
 from ..core.chunking.base import StandardChunker
 from ..models import Document as DocumentSchema
-from ..services.storage import storage_service
-from ..services.vector_service import vector_service
-from ..services.embedding_service import embedding_service
+from ..services.storage import get_storage_service
+from ..services.vector_service import get_vector_service
+from ..services.embedding_service import get_embedding_service
 
 router = APIRouter(prefix="/api", tags=["chunking"])
 
@@ -52,7 +52,11 @@ class ChunkingResponse(BaseModel):
 
 
 @router.post("/chunking", response_model=ChunkingResponse)
-async def chunk_document(request: ChunkingRequest, db: Session = Depends(get_session)):
+async def chunk_document(request: ChunkingRequest, 
+                        db: Session = Depends(get_session), 
+                        storage=Depends(get_storage_service),
+                        embedding_service=Depends(get_embedding_service),
+                        vector_service=Depends(get_vector_service)):
     """Chunk a document using various strategies."""
     
     start_time = datetime.now()
@@ -125,7 +129,8 @@ async def chunk_document(request: ChunkingRequest, db: Session = Depends(get_ses
         metadata = getattr(chunk_obj, 'metadata', {})
         parent_id = getattr(chunk_obj, 'parent_id', None)
         children_ids = getattr(chunk_obj, 'children_ids', [])
-        created_at = getattr(chunk_obj, 'created_at', datetime.now().isoformat())
+        created_at_raw = getattr(chunk_obj, 'created_at', datetime.now())
+        created_at = created_at_raw.isoformat() if isinstance(created_at_raw, datetime) else str(created_at_raw)
         
         # Ensure metadata includes strategy info
         metadata.update({
@@ -165,7 +170,7 @@ async def chunk_document(request: ChunkingRequest, db: Session = Depends(get_ses
     
     # Store chunks in Supabase
     if chunk_dicts:
-        await storage_service.store_chunks(chunk_dicts)
+        await storage.store_chunks(chunk_dicts)
     
     # Generate embeddings and store in Qdrant
     if chunk_dicts:

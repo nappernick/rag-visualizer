@@ -23,10 +23,10 @@ def get_db():
 
 app = FastAPI(title="RAG Visualizer Backend", version="0.1.0")
 
-origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5892,http://localhost:5893").split(",")
+# Wide open CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -10,6 +10,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 from ...models import RetrievalResult, Chunk
 from ...services.id_mapper import IDMapper
 from ...db import get_session
+from ..config import config
 
 logger = logging.getLogger(__name__)
 
@@ -20,33 +21,59 @@ class VectorRetriever:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         vector_config = config.get('vector_store', {})
+        self.enabled = False
+        self.client = None
         
-        # Initialize Qdrant client using environment variables
-        qdrant_url = os.getenv("QDRANT_URL", "")
-        qdrant_api_key = os.getenv("QDRANT_API_KEY", "")
+        # Check if Qdrant is enabled in configuration
+        if not config.is_qdrant_enabled():
+            logger.info("Qdrant is disabled in configuration")
+            return
         
-        if qdrant_url and qdrant_api_key:
-            self.client = QdrantClient(
-                url=qdrant_url,
-                api_key=qdrant_api_key
-            )
-        elif qdrant_url:
-            self.client = QdrantClient(url=qdrant_url)
-        else:
-            # Fallback to config or localhost
-            self.client = QdrantClient(
-                host=vector_config.get('host', 'localhost'),
-                port=vector_config.get('port', 6333)
-            )
-        
-        self.collection_name = vector_config.get('collection_name', 'rag_chunks')
-        self.embedding_dim = vector_config.get('embedding_dim', 1536)
-        
-        # Ensure collection exists
-        self._ensure_collection()
+        try:
+            # Get Qdrant configuration
+            qdrant_config = config.get_qdrant_config()
+            
+            if 'url' in qdrant_config and 'api_key' in qdrant_config:
+                self.client = QdrantClient(
+                    url=qdrant_config['url'],
+                    api_key=qdrant_config['api_key']
+                )
+                logger.info(f"Connecting to Qdrant cloud: {qdrant_config['url']}")
+            elif 'host' in qdrant_config and 'port' in qdrant_config:
+                self.client = QdrantClient(
+                    host=qdrant_config['host'],
+                    port=qdrant_config['port']
+                )
+                logger.info(f"Connecting to Qdrant local: {qdrant_config['host']}:{qdrant_config['port']}")
+            else:
+                # Fallback to vector_config or default
+                self.client = QdrantClient(
+                    host=vector_config.get('host', 'localhost'),
+                    port=vector_config.get('port', 6333)
+                )
+                logger.info("Using default Qdrant configuration")
+            
+            self.collection_name = vector_config.get('collection_name', 'rag_chunks')
+            self.embedding_dim = vector_config.get('embedding_dim', 1536)
+            
+            # Test connection by trying to get collections
+            self.client.get_collections()
+            
+            # Ensure collection exists
+            self._ensure_collection()
+            self.enabled = True
+            logger.info("Qdrant vector store initialized successfully")
+            
+        except Exception as e:
+            logger.warning(f"Qdrant not available: {e}. Vector search will be disabled.")
+            self.client = None
+            self.enabled = False
     
     def _ensure_collection(self):
         """Create collection if it doesn't exist"""
+        if not self.client or not self.enabled:
+            return
+        
         try:
             collections = self.client.get_collections().collections
             if not any(c.name == self.collection_name for c in collections):
@@ -59,10 +86,15 @@ class VectorRetriever:
                 )
                 logger.info(f"Created Qdrant collection: {self.collection_name}")
         except Exception as e:
-            logger.error(f"Error ensuring collection: {e}")
+            logger.warning(f"Error ensuring collection: {e}")
+            self.enabled = False
     
     def index_chunks(self, chunks: List[Chunk], embeddings: List[List[float]]):
         """Index chunks with their embeddings and ID mappings"""
+        if not self.enabled or not self.client:
+            logger.warning("Qdrant not available, skipping chunk indexing")
+            return
+        
         if len(chunks) != len(embeddings):
             raise ValueError("Number of chunks must match number of embeddings")
         
@@ -110,11 +142,15 @@ class VectorRetriever:
                 points.append(point)
         
         # Batch upload to Qdrant
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points
-        )
-        logger.info(f"Indexed {len(points)} chunks to Qdrant with ID mappings")
+        try:
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+            logger.info(f"Indexed {len(points)} chunks to Qdrant with ID mappings")
+        except Exception as e:
+            logger.error(f"Failed to index chunks to Qdrant: {e}")
+            self.enabled = False
     
     def retrieve(self, query_embedding: List[float], 
                 k: int = 10, 
@@ -130,6 +166,10 @@ class VectorRetriever:
         Returns:
             List of retrieval results with ID mapping information
         """
+        if not self.enabled or not self.client:
+            logger.warning("Qdrant not available, returning empty results")
+            return []
+        
         # Build filter if provided
         qdrant_filter = None
         if filter_dict:

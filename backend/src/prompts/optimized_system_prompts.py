@@ -186,7 +186,7 @@ Provide output as JSON with entities and relationships.
         
         if self.config.use_xml_structure:
             paths_formatted = "\n".join([
-                f"<path confidence=\"{p.get('confidence', 0.0)}\">{p.get('description', '')}"</path>"
+                f"<path confidence=\"{p.get('confidence', 0.0)}\">{p.get('description', '')}</path>"
                 for p in reasoning_paths
             ])
             

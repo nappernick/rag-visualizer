@@ -137,11 +137,11 @@ For the RAG (Retrieval-Augmented Generation) domain, pay special attention to:
 - Key concepts and patterns
 
 CRITICAL REQUIREMENTS:
-1. Create a FULLY CONNECTED knowledge graph - every entity must be connected to at least one other entity
-2. NO orphaned entities or isolated subgraphs - ensure all parts of the graph are interconnected
-3. If an entity seems isolated, find or create a logical relationship to connect it to the main graph
-4. Use broad relationships like "RELATES_TO" or "ASSOCIATED_WITH" if specific relationships are unclear
-5. Prioritize creating a cohesive, navigable graph structure over perfect precision
+1. Extract meaningful relationships that are visible or strongly implied in the image/document
+2. Do NOT force every entity to be connected - only create natural relationships
+3. Use broad relationships like "RELATES_TO" or "ASSOCIATED_WITH" if specific relationships are unclear
+4. Prioritize creating a cohesive, navigable graph structure over perfect precision
+5. Only create relationships when there's clear evidence of interaction, dependency, or association
 
 Return your response as a JSON object with this structure:
 {
@@ -163,9 +163,9 @@ Return your response as a JSON object with this structure:
   ]
 }
 
-IMPORTANT: Ensure EVERY entity appears in at least one relationship. Create logical connections between all entities to form a single, connected graph.
+IMPORTANT: Extract relationships that are clearly visible or logically implied in the image/document. Avoid forcing artificial connections just to connect all entities.
 
-Text to analyze:
+Content to analyze:
 """
         
         # Retry logic for throttling

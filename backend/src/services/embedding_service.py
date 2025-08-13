@@ -6,7 +6,11 @@ from typing import List, Optional
 import logging
 import numpy as np
 from sentence_transformers import SentenceTransformer
-import openai
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -18,9 +22,10 @@ class EmbeddingService:
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "sentence-transformers")
+        self.openai_client = None
         
-        if self.embedding_model == "openai" and self.openai_api_key:
-            openai.api_key = self.openai_api_key
+        if self.embedding_model == "openai" and self.openai_api_key and OPENAI_AVAILABLE:
+            self.openai_client = OpenAI(api_key=self.openai_api_key)
             self.model = None
             self.model_name = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
             logger.info("Using OpenAI embeddings")
@@ -40,17 +45,16 @@ class EmbeddingService:
     async def generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text"""
         if not text:
-            return self._mock_embedding(text)
+            raise ValueError("Cannot generate embedding for empty text")
         
         try:
-            if self.embedding_model == "openai":
-                # Use OpenAI API
-                client = openai.OpenAI(api_key=self.openai_api_key)
-                response = client.embeddings.create(
+            if self.embedding_model == "openai" and self.openai_client:
+                # Use OpenAI API with proper v1.x syntax
+                response = self.openai_client.embeddings.create(
                     model=self.model_name,
                     input=text
                 )
-                return response['data'][0]['embedding']
+                return response.data[0].embedding
             
             elif self.embedding_model == "sentence-transformers" and self.model:
                 # Use sentence-transformers
@@ -58,12 +62,12 @@ class EmbeddingService:
                 return embedding.tolist()
             
             else:
-                # Fall back to mock embeddings
-                return self._mock_embedding(text)
+                # No fallback - must use real embeddings
+                raise RuntimeError(f"Embedding service not properly configured: model={self.embedding_model}")
                 
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
-            return self._mock_embedding(text)
+            raise  # Don't fall back to mock
     
     async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
@@ -71,9 +75,9 @@ class EmbeddingService:
             return []
         
         try:
-            if self.embedding_model == "openai":
-                # Batch process with OpenAI
-                response = openai.Embedding.create(
+            if self.embedding_model == "openai" and self.openai_client:
+                # Batch process with OpenAI v1.x API
+                response = self.openai_client.embeddings.create(
                     model=self.model_name,
                     input=texts
                 )
@@ -85,12 +89,12 @@ class EmbeddingService:
                 return embeddings.tolist()
             
             else:
-                # Fall back to mock embeddings
-                return [self._mock_embedding(text) for text in texts]
+                # No fallback - must use real embeddings
+                raise RuntimeError(f"Embedding service not properly configured: model={self.embedding_model}")
                 
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
-            return [self._mock_embedding(text) for text in texts]
+            raise  # Don't fall back to mock
     
     def _mock_embedding(self, text: str) -> List[float]:
         """Generate a deterministic mock embedding based on text hash"""
@@ -142,5 +146,9 @@ class EmbeddingService:
             return 768  # Default dimension
 
 
-# Global embedding service instance
-embedding_service = EmbeddingService()
+# Dependency injection for lazy initialization
+def get_embedding_service():
+    """Get or create embedding service instance"""
+    if not hasattr(get_embedding_service, "_instance"):
+        get_embedding_service._instance = EmbeddingService()
+    return get_embedding_service._instance

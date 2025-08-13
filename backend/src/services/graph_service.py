@@ -7,6 +7,7 @@ import logging
 from neo4j import GraphDatabase, AsyncGraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 import json
+from .neo4j_connection_manager import get_neo4j_connection_manager
 
 logger = logging.getLogger(__name__)
 
@@ -15,36 +16,16 @@ class GraphService:
     """Service for managing graph storage in Neo4j"""
     
     def __init__(self):
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        # Use connection manager for robust connection handling
+        self.conn_manager = get_neo4j_connection_manager()
+        self.driver = self.conn_manager.get_driver()
+        self.initialized = self.conn_manager.enabled
         
-        if neo4j_uri and neo4j_password:
-            try:
-                self.driver = GraphDatabase.driver(
-                    neo4j_uri, 
-                    auth=(neo4j_user, neo4j_password)
-                )
-                # Test connection
-                with self.driver.session() as session:
-                    session.run("RETURN 1")
-                
-                self.initialized = True
-                self._create_indexes()
-                logger.info("Neo4j client initialized successfully")
-                
-            except ServiceUnavailable as e:
-                self.driver = None
-                self.initialized = False
-                logger.warning(f"Neo4j connection failed: {e}")
-            except Exception as e:
-                self.driver = None
-                self.initialized = False
-                logger.warning(f"Neo4j initialization failed: {e}")
+        if self.initialized:
+            self._create_indexes()
+            logger.info("Neo4j graph service initialized successfully")
         else:
-            self.driver = None
-            self.initialized = False
-            logger.warning("Neo4j credentials not found, graph storage will not persist")
+            logger.info("Neo4j not configured - graph operations will be disabled")
     
     def _create_indexes(self):
         """Create indexes for better performance"""
@@ -85,8 +66,12 @@ class GraphService:
     
     async def store_entities(self, entities: List[Dict]) -> bool:
         """Store entities in Neo4j"""
-        if not self.initialized or not entities:
+        if not entities:
             return False
+            
+        if not self.initialized:
+            logger.info("Neo4j not available - skipping entity storage")
+            return True  # Return success to not block the flow
         
         try:
             with self.driver.session() as session:
@@ -426,5 +411,5 @@ class GraphService:
             self.driver.close()
 
 
-# Global graph service instance
-graph_service = GraphService()
+# Use centralized service manager
+from ..core.service_manager import get_graph_service

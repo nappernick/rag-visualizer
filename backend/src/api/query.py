@@ -10,10 +10,10 @@ from datetime import datetime
 from ..db import get_session
 from ..core.retrieval.hybrid_search import EnhancedHybridSearch
 from ..core.temporal.temporal_utils import apply_temporal_boost
-from ..services.vector_service import vector_service
-from ..services.graph_service import graph_service
-from ..services.embedding_service import embedding_service
-from ..services.storage import storage_service
+from ..services.vector_service import get_vector_service
+from ..services.graph_service import get_graph_service
+from ..services.embedding_service import get_embedding_service
+from ..services.storage import get_storage_service
 
 router = APIRouter(prefix="/api", tags=["query"])
 
@@ -167,11 +167,18 @@ async def clear_all_data(db: Session = Depends(get_session)):
     try:
         results = {"status": "success", "cleared": {}}
         
-        # Clear Supabase data
+        # Get service instances
+        storage_service = get_storage_service()
+        vector_service = get_vector_service()
+        graph_service = get_graph_service()
+        
+        # Clear Supabase data (documents, chunks, entities, relationships)
         storage_result = await storage_service.clear_all()
         if storage_result.get("status") == "success":
             results["cleared"]["documents"] = storage_result.get("documents_deleted", 0)
             results["cleared"]["chunks"] = storage_result.get("chunks_deleted", 0)
+            results["cleared"]["supabase_entities"] = storage_result.get("entities_deleted", 0)
+            results["cleared"]["supabase_relationships"] = storage_result.get("relationships_deleted", 0)
         
         # Clear Qdrant vectors
         vector_cleared = await vector_service.clear_all()
@@ -180,8 +187,8 @@ async def clear_all_data(db: Session = Depends(get_session)):
         # Clear Neo4j graph
         graph_result = await graph_service.clear_all()
         if graph_result.get("status") == "success":
-            results["cleared"]["entities"] = graph_result.get("nodes_deleted", 0)
-            results["cleared"]["relationships"] = graph_result.get("relationships_deleted", 0)
+            results["cleared"]["neo4j_nodes"] = graph_result.get("nodes_deleted", 0)
+            results["cleared"]["neo4j_relationships"] = graph_result.get("relationships_deleted", 0)
         
         results["message"] = "All data cleared from Supabase, Qdrant, and Neo4j"
         return results

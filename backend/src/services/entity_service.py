@@ -58,8 +58,9 @@ class EntityService:
         document_id: str,
         chunk_ids: Optional[List[str]] = None,
         use_claude: Optional[bool] = None
-    ) -> List[Dict]:
-        """Extract entities from text"""
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Extract entities and relationships from text
+        Returns: (entities, relationships)"""
         
         # Allow override of Claude usage
         should_use_claude = use_claude if use_claude is not None else (self.use_claude and self.claude_initialized)
@@ -67,17 +68,20 @@ class EntityService:
         if should_use_claude and self.claude_extractor:
             return await self._extract_with_claude(text, document_id, chunk_ids)
         elif self.spacy_initialized and self.nlp:
-            return await self._extract_with_spacy(text, document_id, chunk_ids)
+            entities = await self._extract_with_spacy(text, document_id, chunk_ids)
+            return entities, []  # SpaCy doesn't extract relationships
         else:
-            return await self._extract_fallback(text, document_id, chunk_ids)
+            entities = await self._extract_fallback(text, document_id, chunk_ids)
+            return entities, []  # Fallback doesn't extract relationships
     
     async def _extract_with_claude(
         self, 
         text: str, 
         document_id: str,
         chunk_ids: Optional[List[str]] = None
-    ) -> List[Dict]:
-        """Extract entities using Claude AI"""
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Extract entities and relationships using Claude AI
+        Returns: (entities, relationships)"""
         
         try:
             from ..models import Chunk
@@ -110,16 +114,32 @@ class EntityService:
                 }
                 entity_dicts.append(entity_dict)
             
-            logger.info(f"Extracted {len(entity_dicts)} entities using Claude")
-            return entity_dicts
+            # Convert Relationship objects to dictionaries
+            relationship_dicts = []
+            for rel in relationships:
+                rel_dict = {
+                    "id": rel.id,
+                    "source_entity_id": rel.source_entity_id,
+                    "target_entity_id": rel.target_entity_id,
+                    "relationship_type": rel.relationship_type,
+                    "weight": rel.weight,
+                    "document_ids": rel.document_ids,
+                    "metadata": rel.metadata
+                }
+                relationship_dicts.append(rel_dict)
+            
+            logger.info(f"Extracted {len(entity_dicts)} entities and {len(relationship_dicts)} relationships using Claude")
+            return entity_dicts, relationship_dicts
             
         except Exception as e:
             logger.error(f"Error extracting entities with Claude: {e}")
             # Fallback to SpaCy or simple extraction
             if self.spacy_initialized:
-                return await self._extract_with_spacy(text, document_id, chunk_ids)
+                entities = await self._extract_with_spacy(text, document_id, chunk_ids)
+                return entities, []  # SpaCy doesn't extract relationships
             else:
-                return await self._extract_fallback(text, document_id, chunk_ids)
+                entities = await self._extract_fallback(text, document_id, chunk_ids)
+                return entities, []  # Fallback doesn't extract relationships
     
     async def _extract_with_spacy(
         self, 
@@ -249,45 +269,14 @@ class EntityService:
     ) -> List[Dict]:
         """Extract relationships between entities"""
         
-        relationships = []
+        # When using Claude, relationships are extracted by Claude itself
+        # This method is only called as a fallback when Claude doesn't return relationships
+        # or when explicitly using SpaCy/fallback methods
         
-        if len(entities) < 2:
-            return relationships
-        
-        # Simple co-occurrence based relationships
-        for i, entity1 in enumerate(entities):
-            for j, entity2 in enumerate(entities[i + 1:], i + 1):
-                
-                # Create relationship if entities co-occur
-                rel_id = f"{entity1['id']}_{entity2['id']}"
-                
-                # Determine relationship type based on entity types
-                rel_type = self._determine_relationship_type(
-                    entity1["entity_type"], 
-                    entity2["entity_type"]
-                )
-                
-                # Calculate weight based on frequency and proximity
-                weight = min(entity1["frequency"], entity2["frequency"]) / max(entity1["frequency"], entity2["frequency"])
-                weight = max(0.1, weight)  # Minimum weight
-                
-                relationship = {
-                    "id": rel_id,
-                    "source_entity_id": entity1["id"],
-                    "target_entity_id": entity2["id"],
-                    "relationship_type": rel_type,
-                    "weight": weight,
-                    "document_ids": [document_id],
-                    "metadata": {
-                        "extraction_method": "co_occurrence",
-                        "confidence": weight
-                    }
-                }
-                
-                relationships.append(relationship)
-        
-        logger.info(f"Extracted {len(relationships)} relationships")
-        return relationships
+        # Return empty list - relationships should come from Claude extraction
+        # We don't want automatic relationship creation between all entity pairs
+        logger.info("Relationship extraction delegated to Claude AI")
+        return []
     
     def _determine_relationship_type(self, type1: str, type2: str) -> str:
         """Determine relationship type based on entity types"""
@@ -307,5 +296,9 @@ class EntityService:
         return "related_to"
 
 
-# Global entity service instance
-entity_service = EntityService()
+# Dependency injection for lazy initialization
+def get_entity_service():
+    """Get or create entity service instance"""
+    if not hasattr(get_entity_service, "_instance"):
+        get_entity_service._instance = EntityService()
+    return get_entity_service._instance

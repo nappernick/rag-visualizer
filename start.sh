@@ -30,7 +30,10 @@ fi
 echo "Using package manager: $PKG_MANAGER"
 
 # Activate virtual environment if it exists
-if [ -d "backend/venv_new" ]; then
+if [ -d "venv" ]; then
+    echo "Activating virtual environment (venv)..."
+    source venv/bin/activate
+elif [ -d "backend/venv_new" ]; then
     echo "Activating virtual environment (venv_new)..."
     source backend/venv_new/bin/activate
 elif [ -d "backend/venv" ]; then
@@ -43,7 +46,7 @@ fi
 # Start backend
 echo "Starting backend on port 8745..."
 cd backend
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8745 --reload > ../backend.log 2>&1 &
+python3 -m uvicorn src.main:app --host 0.0.0.0 --port 8745 --reload > ../backend.log 2>&1 &
 BACKEND_PID=$!
 echo "Backend PID: $BACKEND_PID"
 

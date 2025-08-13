@@ -128,7 +128,7 @@ class HierarchicalChunker(BaseChunker):
         if not sections:
             sections = [{
                 'level': 1,
-                'title': document.title if hasattr(document, 'title') else 'Main Content',
+                'title': 'Main Content',
                 'content': content,
                 'subsections': []
             }]

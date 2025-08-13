@@ -9,8 +9,9 @@ import hashlib
 
 from ..db import get_session
 from ..models import Entity, Relationship
-from ..services.graph_service import graph_service
-from ..services.entity_service import entity_service
+from ..services.graph_service import get_graph_service
+from ..services.entity_service import get_entity_service
+from ..services.storage import get_storage_service
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
@@ -61,8 +62,9 @@ async def extract_graph(request: GraphExtractionRequest, db: Session = Depends(g
         full_text = "\n\n".join([chunk.get("content", "") for chunk in request.chunks])
         chunk_ids = [chunk.get("id", "") for chunk in request.chunks if chunk.get("id")]
         
-        # Extract entities using the entity service
-        extracted_entities = await entity_service.extract_entities(
+        # Extract entities and relationships using the entity service
+        entity_service = get_entity_service()
+        extracted_entities, extracted_relationships = await entity_service.extract_entities(
             text=full_text,
             document_id=request.document_id,
             chunk_ids=chunk_ids,
@@ -81,10 +83,16 @@ async def extract_graph(request: GraphExtractionRequest, db: Session = Depends(g
                 metadata=entity_data["metadata"]
             ))
         
-        # Store entities in Neo4j
+        # Store entities in both Neo4j and Supabase
         if extracted_entities:
+            # Store in Neo4j
+            graph_service = get_graph_service()
             await graph_service.store_entities(extracted_entities)
             await graph_service.link_entities_to_document(request.document_id, [e["id"] for e in extracted_entities])
+            
+            # Store in Supabase
+            storage_service = get_storage_service()
+            await storage_service.store_entities(extracted_entities)
             
             # Link entities to chunks
             for chunk in request.chunks:
@@ -99,22 +107,8 @@ async def extract_graph(request: GraphExtractionRequest, db: Session = Depends(g
                     if chunk_entity_ids:
                         await graph_service.link_entities_to_chunks(chunk_id, chunk_entity_ids)
     
-    if request.extract_relationships and entities:
-        # Extract relationships using the entity service
-        full_text = "\n\n".join([chunk.get("content", "") for chunk in request.chunks])
-        entity_dicts = [{
-            "id": e.id,
-            "name": e.name,
-            "entity_type": e.entity_type,
-            "frequency": e.frequency
-        } for e in entities]
-        
-        extracted_relationships = await entity_service.extract_relationships(
-            entities=entity_dicts,
-            text=full_text,
-            document_id=request.document_id
-        )
-        
+    if request.extract_relationships:
+        # Use relationships extracted by Claude (already in extracted_relationships)
         # Convert to response format
         for rel_data in extracted_relationships:
             relationships.append(RelationshipResponse(
@@ -127,9 +121,14 @@ async def extract_graph(request: GraphExtractionRequest, db: Session = Depends(g
                 metadata=rel_data["metadata"]
             ))
         
-        # Store relationships in Neo4j
+        # Store relationships in both Neo4j and Supabase
         if extracted_relationships:
+            # Store in Neo4j
             await graph_service.store_relationships(extracted_relationships)
+            
+            # Store in Supabase
+            storage_service = get_storage_service()
+            await storage_service.store_relationships(extracted_relationships)
     
     return GraphExtractionResponse(
         entities=entities,
@@ -138,9 +137,17 @@ async def extract_graph(request: GraphExtractionRequest, db: Session = Depends(g
 
 
 @router.get("/{document_id}/entities", response_model=List[EntityResponse])
-async def get_entities(document_id: str, db: Session = Depends(get_session)):
+async def get_entities(document_id: str, 
+                      db: Session = Depends(get_session),
+                      graph_service=Depends(get_graph_service),
+                      storage_service=Depends(get_storage_service)):
     """Get all entities for a document."""
-    entities = await graph_service.get_document_entities(document_id)
+    # Try to get from Supabase first
+    entities = await storage_service.get_entities(document_id)
+    
+    # Fallback to Neo4j if Supabase is empty
+    if not entities:
+        entities = await graph_service.get_document_entities(document_id)
     
     # Convert to response format
     return [
@@ -158,9 +165,17 @@ async def get_entities(document_id: str, db: Session = Depends(get_session)):
 
 
 @router.get("/{document_id}/relationships", response_model=List[RelationshipResponse])
-async def get_relationships(document_id: str, db: Session = Depends(get_session)):
+async def get_relationships(document_id: str, 
+                           db: Session = Depends(get_session),
+                           graph_service=Depends(get_graph_service),
+                           storage_service=Depends(get_storage_service)):
     """Get all relationships for a document."""
-    relationships = await graph_service.get_document_relationships(document_id)
+    # Try to get from Supabase first
+    relationships = await storage_service.get_relationships(document_id)
+    
+    # Fallback to Neo4j if Supabase is empty
+    if not relationships:
+        relationships = await graph_service.get_document_relationships(document_id)
     
     # Convert to response format
     return [

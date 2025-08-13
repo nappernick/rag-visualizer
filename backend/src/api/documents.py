@@ -13,7 +13,7 @@ from ..db import get_session
 from ..models import Document, Chunk
 from ..core.temporal.temporal_utils import enrich_with_temporal_metadata
 from ..core.temporal.date_extractor import extract_temporal_metadata
-from ..services.storage import storage_service
+from ..services.storage import get_storage_service
 
 # Try to import Textract processor
 try:
@@ -47,9 +47,9 @@ class DocumentUploadResponse(BaseModel):
 
 
 @router.get("", response_model=List[DocumentResponse])
-async def get_documents(db: Session = Depends(get_session)):
+async def get_documents(db: Session = Depends(get_session), storage=Depends(get_storage_service)):
     """Get all documents."""
-    documents = await storage_service.get_documents()
+    documents = await storage.get_documents()
     
     # If no documents in storage, return empty list
     if not documents:
@@ -59,7 +59,7 @@ async def get_documents(db: Session = Depends(get_session)):
     return [
         DocumentResponse(
             id=doc.get("id"),
-            title=doc.get("title"),
+            title=doc.get("title") or "Untitled",  # Handle None title
             content=doc.get("content"),
             created_at=doc.get("created_at"),
             doc_type=doc.get("doc_type", "default"),
@@ -70,9 +70,9 @@ async def get_documents(db: Session = Depends(get_session)):
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(document_id: str, db: Session = Depends(get_session)):
+async def get_document(document_id: str, db: Session = Depends(get_session), storage=Depends(get_storage_service)):
     """Get a specific document by ID."""
-    document = await storage_service.get_document(document_id)
+    document = await storage.get_document(document_id)
     
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -90,7 +90,8 @@ async def get_document(document_id: str, db: Session = Depends(get_session)):
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    db: Session = Depends(get_session)
+    db: Session = Depends(get_session),
+    storage=Depends(get_storage_service)
 ):
     """Upload and process a document."""
     
@@ -178,11 +179,11 @@ async def upload_document(
         "updated_at": now
     }
     
-    stored_doc = await storage_service.store_document(document)
+    stored_doc = await storage.store_document(document)
     
     # Store chunks in Supabase
     if chunks:
-        await storage_service.store_chunks(chunks)
+        await storage.store_chunks(chunks)
     
     return DocumentUploadResponse(
         id=doc_id,
@@ -197,9 +198,9 @@ async def upload_document(
 
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: str, db: Session = Depends(get_session)):
+async def delete_document(document_id: str, db: Session = Depends(get_session), storage=Depends(get_storage_service)):
     """Delete a document and its chunks."""
-    success = await storage_service.delete_document(document_id)
+    success = await storage.delete_document(document_id)
     
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -208,9 +209,9 @@ async def delete_document(document_id: str, db: Session = Depends(get_session)):
 
 
 @router.get("/{document_id}/chunks", response_model=List[Dict])
-async def get_document_chunks(document_id: str, db: Session = Depends(get_session)):
+async def get_document_chunks(document_id: str, db: Session = Depends(get_session), storage=Depends(get_storage_service)):
     """Get all chunks for a document."""
-    chunks = await storage_service.get_chunks(document_id)
+    chunks = await storage.get_chunks(document_id)
     
     # Return array directly for frontend compatibility
     return chunks if chunks else []

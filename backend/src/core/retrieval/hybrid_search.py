@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ...models import RetrievalResult, Document, Chunk
 from .vector_retriever import VectorRetriever
 from ...db import get_session
+from ..config import config
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +38,51 @@ class SearchConfig:
 class RedisSearchIndex:
     """Redis-based keyword and metadata search"""
     
-    def __init__(self, redis_host: str = 'localhost', redis_port: int = 6379):
-        self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-        self.search_client = self.redis_client.ft('chunks')
-        self._ensure_index()
+    def __init__(self, redis_host: str = None, redis_port: int = None):
+        self.enabled = False
+        
+        # Check if Redis is enabled in configuration
+        if not config.is_redis_enabled():
+            logger.info("Redis is disabled in configuration")
+            self.redis_client = None
+            self.search_client = None
+            return
+        
+        # Use provided parameters or fall back to config
+        host = redis_host or config.REDIS_HOST
+        port = redis_port or config.REDIS_PORT
+        
+        try:
+            self.redis_client = redis.Redis(host=host, port=port, decode_responses=True)
+            # Test connection
+            self.redis_client.ping()
+            self.search_client = self.redis_client.ft('chunks')
+            self._ensure_index()
+            self.enabled = True
+            logger.info(f"Redis search connected to {host}:{port}")
+        except Exception as e:
+            logger.warning(f"Redis search not available: {e}. Using fallback search.")
+            self.redis_client = None
+            self.search_client = None
     
     def _ensure_index(self):
         """Ensure Redis search index exists"""
+        if not self.redis_client:
+            return
         try:
             # Check if index exists
             self.search_client.info()
         except:
             # Create index if it doesn't exist
             logger.info("Creating Redis search index for chunks")
-            from redis.commands.search.field import TextField, NumericField, TagField
-            from redis.commands.search.index_definition import IndexDefinition, IndexType
+            try:
+                from redis.commands.search.field import TextField, NumericField, TagField
+                from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+            except ImportError:
+                # Fallback for different Redis versions
+                logger.warning("Redis search module not available")
+                self.enabled = False
+                return
             
             schema = [
                 TextField('content', weight=1.0),
@@ -78,6 +109,9 @@ class RedisSearchIndex:
     
     def index_chunk(self, chunk: Chunk, document: Document):
         """Index a chunk in Redis for keyword search"""
+        if not self.enabled or not self.redis_client:
+            return
+        
         chunk_key = f"chunk:{chunk.id}"
         
         # Prepare data for indexing
@@ -90,11 +124,17 @@ class RedisSearchIndex:
             'tags': ','.join(chunk.metadata.get('tags', []))
         }
         
-        # Store in Redis
-        self.redis_client.hset(chunk_key, mapping=data)
+        try:
+            # Store in Redis
+            self.redis_client.hset(chunk_key, mapping=data)
+        except Exception as e:
+            logger.warning(f"Could not index chunk in Redis: {e}")
     
     def search_keywords(self, query: str, top_k: int = 20, boost_terms: List[str] = None) -> List[Dict]:
         """Perform keyword search using Redis Search"""
+        if not self.enabled or not self.search_client:
+            return []
+        
         try:
             # Build search query with optional boosting
             search_query = query
@@ -133,6 +173,9 @@ class RedisSearchIndex:
     
     def search_metadata(self, filters: Dict[str, Any], top_k: int = 10) -> List[Dict]:
         """Search based on metadata filters"""
+        if not self.enabled or not self.search_client:
+            return []
+        
         try:
             # Build filter query
             filter_parts = []
