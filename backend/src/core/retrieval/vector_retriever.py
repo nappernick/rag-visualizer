@@ -3,6 +3,7 @@ Vector-based retrieval using Qdrant with enhanced ID mapping support
 """
 from typing import List, Dict, Any, Optional
 import logging
+import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
@@ -20,11 +21,23 @@ class VectorRetriever:
         self.config = config
         vector_config = config.get('vector_store', {})
         
-        # Initialize Qdrant client
-        self.client = QdrantClient(
-            host=vector_config.get('host', 'localhost'),
-            port=vector_config.get('port', 6333)
-        )
+        # Initialize Qdrant client using environment variables
+        qdrant_url = os.getenv("QDRANT_URL", "")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY", "")
+        
+        if qdrant_url and qdrant_api_key:
+            self.client = QdrantClient(
+                url=qdrant_url,
+                api_key=qdrant_api_key
+            )
+        elif qdrant_url:
+            self.client = QdrantClient(url=qdrant_url)
+        else:
+            # Fallback to config or localhost
+            self.client = QdrantClient(
+                host=vector_config.get('host', 'localhost'),
+                port=vector_config.get('port', 6333)
+            )
         
         self.collection_name = vector_config.get('collection_name', 'rag_chunks')
         self.embedding_dim = vector_config.get('embedding_dim', 1536)

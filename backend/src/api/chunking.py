@@ -6,9 +6,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import hashlib
+from datetime import datetime
 
 from ..db import get_session
 from ..core.chunking.semantic_chunker import SemanticChunker
+from ..core.chunking.hierarchical import HierarchicalChunker
+from ..core.chunking.base import StandardChunker
+from ..models import Document as DocumentSchema
 from ..services.storage import storage_service
 from ..services.vector_service import vector_service
 from ..services.embedding_service import embedding_service
@@ -54,56 +58,106 @@ async def chunk_document(request: ChunkingRequest, db: Session = Depends(get_ses
     start_time = datetime.now()
     chunks = []
     
-    if request.strategy in ["semantic", "hierarchical"]:
-        # Use semantic chunking for both semantic and hierarchical strategies
-        chunker = SemanticChunker(
-            chunk_size=request.max_chunk_size,
+    # Create a mock document object for the chunkers
+    mock_document = DocumentSchema(
+        id=request.document_id,
+        title="Uploaded Document",
+        content=request.content
+    )
+    
+    # Choose chunker based on strategy
+    if request.strategy == "hierarchical":
+        chunker = HierarchicalChunker(
+            max_chunk_size=request.max_chunk_size,
+            chunk_overlap=request.chunk_overlap,
+            create_summaries=True
+        )
+        chunk_objects = chunker.chunk_document(mock_document)
+    elif request.strategy == "semantic":
+        # Use semantic chunker if available, otherwise standard
+        try:
+            chunker = SemanticChunker(
+                chunk_size=request.max_chunk_size,
+                chunk_overlap=request.chunk_overlap
+            )
+            chunk_texts = chunker.chunk(request.content)
+            # Convert to Chunk objects
+            chunk_objects = []
+            for i, text in enumerate(chunk_texts):
+                chunk_id = hashlib.md5(f"{request.document_id}_{i}_{text[:50]}".encode()).hexdigest()[:12]
+                chunk_obj = type('Chunk', (), {
+                    'id': chunk_id,
+                    'content': text,
+                    'document_id': request.document_id,
+                    'chunk_index': i,
+                    'chunk_type': 'standard',
+                    'tokens': len(text.split()),
+                    'metadata': {'method': 'semantic'},
+                    'parent_id': None,
+                    'children_ids': [],
+                    'created_at': datetime.now().isoformat()
+                })()
+                chunk_objects.append(chunk_obj)
+        except Exception as e:
+            # Fall back to standard chunking
+            chunker = StandardChunker(
+                max_chunk_size=request.max_chunk_size,
+                chunk_overlap=request.chunk_overlap
+            )
+            chunk_objects = chunker.chunk_document(mock_document)
+    else:
+        # Standard chunking
+        chunker = StandardChunker(
+            max_chunk_size=request.max_chunk_size,
             chunk_overlap=request.chunk_overlap
         )
-        chunk_texts = chunker.chunk(request.content)
-    else:
-        # Simple fixed-size chunking for "standard" strategy
-        chunk_texts = []
-        text = request.content
-        for i in range(0, len(text), request.max_chunk_size - request.chunk_overlap):
-            chunk_texts.append(text[i:i + request.max_chunk_size])
+        chunk_objects = chunker.chunk_document(mock_document)
     
-    # Create chunk objects
+    # Convert chunk objects to dictionaries and response objects
     chunk_dicts = []
-    for i, chunk_text in enumerate(chunk_texts):
-        chunk_id = hashlib.md5(f"{request.document_id}_{i}_{chunk_text[:50]}".encode()).hexdigest()[:12]
+    for chunk_obj in chunk_objects:
+        # Handle chunk object attributes  
+        chunk_id = getattr(chunk_obj, 'id', hashlib.md5(f"{request.document_id}_{len(chunk_dicts)}".encode()).hexdigest()[:12])
+        chunk_content = getattr(chunk_obj, 'content', '')
+        chunk_index = getattr(chunk_obj, 'chunk_index', len(chunk_dicts))
+        chunk_type = getattr(chunk_obj, 'chunk_type', 'standard')
+        tokens = getattr(chunk_obj, 'tokens', len(chunk_content.split()))
+        metadata = getattr(chunk_obj, 'metadata', {})
+        parent_id = getattr(chunk_obj, 'parent_id', None)
+        children_ids = getattr(chunk_obj, 'children_ids', [])
+        created_at = getattr(chunk_obj, 'created_at', datetime.now().isoformat())
         
-        # Determine chunk type based on strategy
-        chunk_type = "hierarchical" if request.strategy == "hierarchical" else "standard"
+        # Ensure metadata includes strategy info
+        metadata.update({
+            "method": request.strategy,
+            "chunk_size": request.max_chunk_size,
+            "overlap": request.chunk_overlap
+        })
         
         chunk_dict = {
             "id": chunk_id,
             "document_id": request.document_id,
-            "content": chunk_text,
-            "chunk_index": i,
+            "content": chunk_content,
+            "chunk_index": chunk_index,
             "chunk_type": chunk_type,
-            "tokens": len(chunk_text.split()),
-            "metadata": {
-                "method": request.strategy,
-                "chunk_size": request.max_chunk_size,
-                "overlap": request.chunk_overlap
-            },
-            "parent_id": None,
-            "children_ids": [],
-            "created_at": datetime.now().isoformat()
+            "tokens": tokens,
+            "metadata": metadata,
+            "parent_id": parent_id,
+            "children_ids": children_ids,
+            "created_at": created_at
         }
         
         chunk = ChunkResponse(
             id=chunk_id,
             document_id=request.document_id,
-            content=chunk_text,
-            chunk_index=i,
+            content=chunk_content,
+            chunk_index=chunk_index,
             chunk_type=chunk_type,
-            tokens=len(chunk_text.split()),
-            metadata=chunk_dict["metadata"],
-            parent_id=None,
-            children_ids=[],
-            created_at=chunk_dict["created_at"]
+            tokens=tokens,
+            metadata=metadata,
+            parent_id=parent_id,
+            children_ids=children_ids,
+            created_at=created_at
         )
         
         chunks.append(chunk)

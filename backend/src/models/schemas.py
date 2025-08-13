@@ -1,11 +1,63 @@
 """
 Data models for RAG Visualizer
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field
 import uuid
+
+
+# ID mapping types and models
+IDType = Literal[
+    "document",
+    "chunk",
+    "vector", 
+    "entity",
+    "relationship",
+    "graph_node",
+    "graph_edge",
+]
+
+
+class IDLinkIn(BaseModel):
+    a_type: IDType
+    a_id: str
+    b_type: IDType
+    b_id: str
+    relation: Optional[str] = Field(default=None, description="Optional relation label")
+    bidirectional: bool = True
+
+
+class IDLinkOut(BaseModel):
+    id: int
+    a_type: IDType
+    a_id: str
+    b_type: IDType
+    b_id: str
+    relation: Optional[str] = None
+    created_at: datetime
+
+
+class TraverseResponse(BaseModel):
+    origin_type: IDType
+    origin_id: str
+    related: Dict[IDType, List[str]] = Field(default_factory=dict)
+
+
+class IngestChunk(BaseModel):
+    id: str
+    vector_id: Optional[str] = None
+    entity_ids: Optional[List[str]] = None
+    parent_id: Optional[str] = None
+    graph_node_ids: Optional[List[str]] = None
+
+
+class IngestDocument(BaseModel):
+    id: str
+    chunk_ids: Optional[List[str]] = None
+    entity_ids: Optional[List[str]] = None
+    chunks: Optional[List[IngestChunk]] = None
 
 
 class ChunkType(str, Enum):

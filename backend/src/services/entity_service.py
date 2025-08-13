@@ -1,5 +1,5 @@
 """
-Entity extraction service using SpaCy
+Entity extraction service using SpaCy and Claude
 """
 import os
 from typing import List, Dict, Optional, Tuple
@@ -8,36 +8,118 @@ import spacy
 from collections import Counter
 import hashlib
 
+# Try to import Claude extractor
+try:
+    from ..core.graph.claude_extractor import ClaudeGraphExtractor
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    ClaudeGraphExtractor = None
+    CLAUDE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
 class EntityService:
-    """Service for extracting entities from text using SpaCy"""
+    """Service for extracting entities from text using SpaCy and Claude"""
     
     def __init__(self):
         model_name = os.getenv("SPACY_MODEL", "en_core_web_sm")
         
+        # Initialize SpaCy
         try:
             self.nlp = spacy.load(model_name)
-            self.initialized = True
+            self.spacy_initialized = True
             logger.info(f"SpaCy model loaded: {model_name}")
         except OSError:
-            logger.warning(f"SpaCy model '{model_name}' not found, using fallback extraction")
+            logger.warning(f"SpaCy model '{model_name}' not found")
             self.nlp = None
-            self.initialized = False
+            self.spacy_initialized = False
+        
+        # Initialize Claude extractor if available (default to True)
+        self.use_claude = os.getenv("USE_CLAUDE_EXTRACTION", "true").lower() == "true"
+        if self.use_claude and CLAUDE_AVAILABLE:
+            try:
+                self.claude_extractor = ClaudeGraphExtractor()
+                self.claude_initialized = True
+                logger.info("Claude graph extractor initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Claude extractor: {e}")
+                self.claude_extractor = None
+                self.claude_initialized = False
+        else:
+            self.claude_extractor = None
+            self.claude_initialized = False
+        
+        self.initialized = self.spacy_initialized or self.claude_initialized
     
     async def extract_entities(
         self, 
         text: str, 
         document_id: str,
-        chunk_ids: Optional[List[str]] = None
+        chunk_ids: Optional[List[str]] = None,
+        use_claude: Optional[bool] = None
     ) -> List[Dict]:
         """Extract entities from text"""
         
-        if self.initialized and self.nlp:
+        # Allow override of Claude usage
+        should_use_claude = use_claude if use_claude is not None else (self.use_claude and self.claude_initialized)
+        
+        if should_use_claude and self.claude_extractor:
+            return await self._extract_with_claude(text, document_id, chunk_ids)
+        elif self.spacy_initialized and self.nlp:
             return await self._extract_with_spacy(text, document_id, chunk_ids)
         else:
             return await self._extract_fallback(text, document_id, chunk_ids)
+    
+    async def _extract_with_claude(
+        self, 
+        text: str, 
+        document_id: str,
+        chunk_ids: Optional[List[str]] = None
+    ) -> List[Dict]:
+        """Extract entities using Claude AI"""
+        
+        try:
+            from ..models import Chunk
+            
+            # Create mock chunks for the Claude extractor
+            mock_chunks = [Chunk(
+                content=text,
+                document_id=document_id,
+                chunk_index=0,
+                tokens=len(text) // 4  # Simple estimation
+            )]
+            
+            # Extract entities and relationships using Claude
+            entities, relationships = self.claude_extractor.extract_from_chunks(
+                chunks=mock_chunks, 
+                document_id=document_id
+            )
+            
+            # Convert Entity objects to dictionaries
+            entity_dicts = []
+            for entity in entities:
+                entity_dict = {
+                    "id": entity.id,
+                    "name": entity.name,
+                    "entity_type": entity.entity_type,
+                    "document_ids": entity.document_ids,
+                    "chunk_ids": chunk_ids or [],
+                    "frequency": entity.frequency,
+                    "metadata": entity.metadata
+                }
+                entity_dicts.append(entity_dict)
+            
+            logger.info(f"Extracted {len(entity_dicts)} entities using Claude")
+            return entity_dicts
+            
+        except Exception as e:
+            logger.error(f"Error extracting entities with Claude: {e}")
+            # Fallback to SpaCy or simple extraction
+            if self.spacy_initialized:
+                return await self._extract_with_spacy(text, document_id, chunk_ids)
+            else:
+                return await self._extract_fallback(text, document_id, chunk_ids)
     
     async def _extract_with_spacy(
         self, 

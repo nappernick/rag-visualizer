@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
 
-from models.schemas import Entity, Relationship
+from ...models.schemas import Entity, Relationship
 
 logger = logging.getLogger(__name__)
 

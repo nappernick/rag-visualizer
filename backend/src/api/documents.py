@@ -15,6 +15,14 @@ from ..core.temporal.temporal_utils import enrich_with_temporal_metadata
 from ..core.temporal.date_extractor import extract_temporal_metadata
 from ..services.storage import storage_service
 
+# Try to import Textract processor
+try:
+    from ..core.ocr.textract_processor import TextractProcessor
+    TEXTRACT_AVAILABLE = True
+except ImportError:
+    TextractProcessor = None
+    TEXTRACT_AVAILABLE = False
+
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
@@ -89,12 +97,33 @@ async def upload_document(
     # Read file content
     content = await file.read()
     
-    # Decode content
-    try:
-        text_content = content.decode('utf-8')
-    except UnicodeDecodeError:
-        # Handle binary files
-        raise HTTPException(status_code=400, detail="Only text files are supported currently")
+    # Determine file type
+    file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+    
+    # Process based on file type
+    if file_extension in ['pdf'] and TEXTRACT_AVAILABLE:
+        # Use Textract for PDF processing
+        try:
+            textract_processor = TextractProcessor()
+            text_content = textract_processor.process_document(content, file.filename)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
+    elif file_extension in ['png', 'jpg', 'jpeg', 'tiff', 'bmp'] and TEXTRACT_AVAILABLE:
+        # Use Textract for image processing
+        try:
+            textract_processor = TextractProcessor()
+            text_content = textract_processor.process_document(content, file.filename)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+    else:
+        # Try to decode as text
+        try:
+            text_content = content.decode('utf-8')
+        except UnicodeDecodeError:
+            if file_extension in ['pdf', 'png', 'jpg', 'jpeg', 'tiff', 'bmp']:
+                raise HTTPException(status_code=400, detail="Textract is not available. Cannot process PDF/image files.")
+            else:
+                raise HTTPException(status_code=400, detail="Unable to process this file type. Only text, PDF, and image files are supported.")
     
     # Generate document ID
     doc_id = hashlib.md5(content).hexdigest()[:12]
@@ -108,6 +137,16 @@ async def upload_document(
         text_content,
         file.filename
     )
+    
+    # Set document type based on file extension
+    if file_extension in ['pdf']:
+        metadata['doc_type'] = 'pdf'
+    elif file_extension in ['png', 'jpg', 'jpeg', 'tiff', 'bmp']:
+        metadata['doc_type'] = 'image'
+    elif file_extension in ['md', 'markdown']:
+        metadata['doc_type'] = 'markdown'
+    else:
+        metadata['doc_type'] = 'text'
     
     # Create chunks (simple splitting for now)
     chunks = []

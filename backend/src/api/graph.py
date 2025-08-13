@@ -41,6 +41,7 @@ class GraphExtractionRequest(BaseModel):
     extract_entities: bool = True
     extract_relationships: bool = True
     use_spacy: bool = True
+    use_claude: Optional[bool] = True  # Default to Claude
 
 
 class GraphExtractionResponse(BaseModel):
@@ -64,7 +65,8 @@ async def extract_graph(request: GraphExtractionRequest, db: Session = Depends(g
         extracted_entities = await entity_service.extract_entities(
             text=full_text,
             document_id=request.document_id,
-            chunk_ids=chunk_ids
+            chunk_ids=chunk_ids,
+            use_claude=request.use_claude
         )
         
         # Convert to response format

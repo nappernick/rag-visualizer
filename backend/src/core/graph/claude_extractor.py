@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import boto3
 from botocore.exceptions import ClientError
 
-from models.schemas import Chunk, Entity, Relationship
+from ...models.schemas import Chunk, Entity, Relationship
 
 logger = logging.getLogger(__name__)
 

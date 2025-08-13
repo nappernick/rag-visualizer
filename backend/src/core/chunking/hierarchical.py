@@ -8,7 +8,7 @@ import uuid
 from collections import defaultdict
 
 from .base import BaseChunker
-from models.schemas import Document, Chunk, ChunkType
+from ...models.schemas import Document, Chunk, ChunkType
 
 
 @dataclass

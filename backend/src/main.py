@@ -5,6 +5,10 @@ from typing import List, Dict
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from .db import get_session, init_db
 from .models import IDLinkIn, IDLinkOut, TraverseResponse, IngestDocument

@@ -17,7 +17,7 @@ export const ChunkVisualizer: React.FC<ChunkVisualizerProps> = ({
   const [viewMode, setViewMode] = useState<'hierarchy' | 'linear' | 'grid'>('hierarchy');
 
   useEffect(() => {
-    if (!svgRef.current || chunks.length === 0) return;
+    if (!svgRef.current || !Array.isArray(chunks) || chunks.length === 0) return;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();

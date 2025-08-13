@@ -3,9 +3,15 @@ Base chunker interface and standard implementation
 """
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-import tiktoken
+# Try to import tiktoken for better token counting, fallback to simple word-based estimation
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    tiktoken = None
+    TIKTOKEN_AVAILABLE = False
 import re
-from models.schemas import Document, Chunk, ChunkType
+from ...models.schemas import Document, Chunk, ChunkType
 
 
 class BaseChunker(ABC):
@@ -14,7 +20,10 @@ class BaseChunker(ABC):
     def __init__(self, max_chunk_size: int = 800, chunk_overlap: int = 100):
         self.max_chunk_size = max_chunk_size
         self.chunk_overlap = chunk_overlap
-        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        if TIKTOKEN_AVAILABLE:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        else:
+            self.tokenizer = None
     
     @abstractmethod
     def chunk_document(self, document: Document) -> List[Chunk]:
@@ -23,7 +32,11 @@ class BaseChunker(ABC):
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
-        return len(self.tokenizer.encode(text))
+        if self.tokenizer:
+            return len(self.tokenizer.encode(text))
+        else:
+            # Fallback to simple word-based estimation (roughly 4 characters per token)
+            return len(text) // 4
 
 
 class StandardChunker(BaseChunker):

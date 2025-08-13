@@ -65,7 +65,7 @@ function App() {
       for (const doc of documents) {
         try {
           const docChunks = await chunkingApi.getChunks(doc.id);
-          newAllChunks[doc.id] = docChunks;
+          newAllChunks[doc.id] = Array.isArray(docChunks) ? docChunks : [];
           
           const [docEntities, docRelationships] = await Promise.all([
             graphApi.getEntities(doc.id).catch(() => []),
@@ -128,13 +128,13 @@ function App() {
         
         // Update chunks for the first document
         if (i === 0) {
-          setChunks(chunkingResponse.chunks);
+          setChunks(Array.isArray(chunkingResponse.chunks) ? chunkingResponse.chunks : []);
         }
         
         // Update all chunks collection
         setAllChunks(prev => ({
           ...prev,
-          [document.id]: chunkingResponse.chunks
+          [document.id]: Array.isArray(chunkingResponse.chunks) ? chunkingResponse.chunks : []
         }));
         
         // Extract graph
@@ -212,7 +212,7 @@ function App() {
       };
       
       const chunkingResponse = await chunkingApi.chunkDocument(chunkingRequest);
-      setChunks(chunkingResponse.chunks);
+      setChunks(Array.isArray(chunkingResponse.chunks) ? chunkingResponse.chunks : []);
       
     } catch (err) {
       setError('Failed to create document');
@@ -230,7 +230,7 @@ function App() {
       
       // Load chunks
       const docChunks = await chunkingApi.getChunks(doc.id);
-      setChunks(docChunks);
+      setChunks(Array.isArray(docChunks) ? docChunks : []);
       
       // Load entities and relationships
       const [docEntities, docRelationships] = await Promise.all([

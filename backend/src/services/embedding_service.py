@@ -22,7 +22,7 @@ class EmbeddingService:
         if self.embedding_model == "openai" and self.openai_api_key:
             openai.api_key = self.openai_api_key
             self.model = None
-            self.model_name = "text-embedding-ada-002"
+            self.model_name = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
             logger.info("Using OpenAI embeddings")
         else:
             # Use sentence-transformers as default
@@ -45,7 +45,8 @@ class EmbeddingService:
         try:
             if self.embedding_model == "openai":
                 # Use OpenAI API
-                response = openai.Embedding.create(
+                client = openai.OpenAI(api_key=self.openai_api_key)
+                response = client.embeddings.create(
                     model=self.model_name,
                     input=text
                 )
@@ -76,7 +77,7 @@ class EmbeddingService:
                     model=self.model_name,
                     input=texts
                 )
-                return [item['embedding'] for item in response['data']]
+                return [item.embedding for item in response.data]
             
             elif self.embedding_model == "sentence-transformers" and self.model:
                 # Batch process with sentence-transformers

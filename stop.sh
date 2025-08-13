@@ -20,13 +20,13 @@ if [ -f frontend.pid ]; then
     rm frontend.pid
 else
     echo "No frontend.pid found, killing by port..."
-    pkill -f "vite.*589" 2>/dev/null
+    pkill -f "vite.*5892" 2>/dev/null
 fi
 
 # Also kill by port pattern as fallback
 echo "Cleaning up any remaining processes..."
 pkill -f "uvicorn main:app.*8745" 2>/dev/null
-pkill -f "vite.*589" 2>/dev/null
+pkill -f "vite.*5892" 2>/dev/null
 lsof -ti:8745 | xargs kill -9 2>/dev/null
 lsof -ti:5892 | xargs kill -9 2>/dev/null
 lsof -ti:5893 | xargs kill -9 2>/dev/null

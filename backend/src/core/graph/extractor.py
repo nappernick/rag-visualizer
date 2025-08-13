@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from models.schemas import Chunk, Entity, Relationship
+from ...models.schemas import Chunk, Entity, Relationship
 
 logger = logging.getLogger(__name__)
 
