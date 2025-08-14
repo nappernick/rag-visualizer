@@ -4,7 +4,12 @@ Entity extraction service using SpaCy and Claude
 import os
 from typing import List, Dict, Optional, Tuple
 import logging
-import spacy
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    spacy = None
 from collections import Counter
 import hashlib
 
@@ -25,13 +30,18 @@ class EntityService:
     def __init__(self):
         model_name = os.getenv("SPACY_MODEL", "en_core_web_sm")
         
-        # Initialize SpaCy
-        try:
-            self.nlp = spacy.load(model_name)
-            self.spacy_initialized = True
-            logger.info(f"SpaCy model loaded: {model_name}")
-        except OSError:
-            logger.warning(f"SpaCy model '{model_name}' not found")
+        # Initialize SpaCy if available
+        if SPACY_AVAILABLE:
+            try:
+                self.nlp = spacy.load(model_name)
+                self.spacy_initialized = True
+                logger.info(f"SpaCy model loaded: {model_name}")
+            except OSError:
+                logger.warning(f"SpaCy model '{model_name}' not found")
+                self.nlp = None
+                self.spacy_initialized = False
+        else:
+            logger.info("SpaCy not available, will use Claude for entity extraction")
             self.nlp = None
             self.spacy_initialized = False
         

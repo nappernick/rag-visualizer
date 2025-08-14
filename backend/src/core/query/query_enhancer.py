@@ -9,8 +9,18 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-import spacy
-from sentence_transformers import SentenceTransformer
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    spacy = None
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMER_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMER_AVAILABLE = False
+    SentenceTransformer = None
 
 logger = logging.getLogger(__name__)
 
@@ -56,30 +66,38 @@ class QueryEnhancer:
     for improved retrieval performance.
     """
     
-    def __init__(self, bedrock_client=None, use_local_models: bool = True):
+    def __init__(self, bedrock_client=None, use_local_models: bool = True, openai_client=None):
         """
         Initialize QueryEnhancer.
         
         Args:
             bedrock_client: AWS Bedrock client for LLM-based decomposition
             use_local_models: Whether to use local NLP models for expansion
+            openai_client: OpenAI client for using Claude Haiku
         """
         self.bedrock_client = bedrock_client
-        self.use_local_models = use_local_models
+        self.openai_client = openai_client
+        self.use_local_models = use_local_models and SPACY_AVAILABLE and SENTENCE_TRANSFORMER_AVAILABLE
         
-        if use_local_models:
+        if self.use_local_models:
             try:
                 # Load spaCy model for NER and POS tagging
                 self.nlp = spacy.load("en_core_web_sm")
                 logger.info("Loaded spaCy model for query analysis")
             except:
-                logger.warning("spaCy model not found, installing...")
-                import subprocess
-                subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-                self.nlp = spacy.load("en_core_web_sm")
+                logger.warning("spaCy model not available, will use Claude Haiku instead")
+                self.use_local_models = False
+                self.nlp = None
             
-            # Load sentence transformer for semantic similarity
-            self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+            if SENTENCE_TRANSFORMER_AVAILABLE:
+                # Load sentence transformer for semantic similarity
+                self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+            else:
+                self.sentence_model = None
+        else:
+            self.nlp = None
+            self.sentence_model = None
+            logger.info("Using Claude Haiku for query enhancement")
         
         # Synonym dictionary for common technical terms
         self.synonym_dict = {
@@ -237,6 +255,51 @@ class QueryEnhancer:
             for chunk in doc.noun_chunks:
                 if len(chunk.text.split()) <= 3:  # Limit phrase length
                     concepts.append(chunk.text.lower())
+        elif self.bedrock_client:
+            # Use Bedrock Claude 3.5 Haiku for entity and concept extraction
+            try:
+                prompt = f"""Extract entities and concepts from the following query for a RAG system.
+
+Query: "{query}"
+
+Return ONLY a valid JSON object with this exact structure:
+{{
+  "entities": ["entity1", "entity2"],  // Named entities like people, places, organizations, systems
+  "concepts": ["concept1", "concept2"]  // Key topics, technical terms, domain concepts
+}}
+
+Rules:
+- Extract up to 5 entities and 10 concepts
+- Entities should be proper nouns when possible
+- Concepts should be meaningful keywords for search
+- Keep items concise (1-3 words each)
+- Return valid JSON only, no other text"""
+
+                response = self.bedrock_client.invoke_model(
+                    modelId='us.anthropic.claude-3-5-haiku-20241022-v1:0',
+                    contentType='application/json',
+                    accept='application/json',
+                    body=json.dumps({
+                        'messages': [{'role': 'user', 'content': prompt}],
+                        'anthropic_version': 'bedrock-2023-05-31',
+                        'max_tokens': 200,
+                        'temperature': 0.3
+                    })
+                )
+                
+                result = json.loads(response['body'].read())
+                content = result.get('content', [{}])[0].get('text', '{}')
+                extracted = json.loads(content)
+                entities = extracted.get('entities', [])
+                concepts = extracted.get('concepts', [])
+            except Exception as e:
+                logger.warning(f"Bedrock extraction failed: {e}, using fallback")
+                # Fallback to simple extraction
+                words = query.lower().split()
+                stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                             'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were',
+                             'what', 'when', 'where', 'who', 'why', 'how', 'which', 'does', 'do'}
+                concepts = [w for w in words if w not in stop_words and len(w) > 2]
         else:
             # Fallback to simple keyword extraction
             words = query.lower().split()

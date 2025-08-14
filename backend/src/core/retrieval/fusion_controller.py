@@ -6,7 +6,12 @@ import logging
 import yaml
 from pathlib import Path
 import numpy as np
-from sentence_transformers import CrossEncoder
+try:
+    from sentence_transformers import CrossEncoder
+    CROSS_ENCODER_AVAILABLE = True
+except ImportError:
+    CROSS_ENCODER_AVAILABLE = False
+    CrossEncoder = None
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -65,13 +70,29 @@ class FusionController:
         
         # Initialize reranker if enabled
         self._reranker = None
+        self.cohere_client = None
         if self.fusion_config.get('use_reranker'):
-            try:
-                model_name = self.fusion_config.get('reranker_model', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
-                self._reranker = CrossEncoder(model_name)
-                logger.info(f"Loaded reranking model: {model_name}")
-            except Exception as e:
-                logger.warning(f"Failed to load reranker: {e}")
+            reranker_type = self.fusion_config.get('reranker_type', 'cross-encoder')
+            
+            if reranker_type == 'cohere' and bedrock_client:
+                # Use Cohere reranker via Bedrock
+                self._reranker = "cohere-bedrock"
+                logger.info("Using Cohere reranker via Bedrock")
+            elif reranker_type == 'llm' and bedrock_client:
+                # Use LLM as a cross-encoder (Claude Haiku)
+                self._reranker = "llm-bedrock"
+                logger.info("Using Claude Haiku as LLM cross-encoder")
+            elif CROSS_ENCODER_AVAILABLE:
+                try:
+                    model_name = self.fusion_config.get('reranker_model', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
+                    self._reranker = CrossEncoder(model_name)
+                    logger.info(f"Loaded reranking model: {model_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to load reranker: {e}")
+                    self._reranker = "simple"
+            else:
+                logger.info("Cross-encoder not available, using simple cosine similarity reranking")
+                self._reranker = "simple"  # Use simple reranking fallback
         
         # Thread pool for parallel retrieval
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -641,19 +662,132 @@ class FusionController:
         return results
     
     def _rerank_results(self, results: List[RetrievalResult], query: str) -> List[RetrievalResult]:
-        """Apply cross-encoder reranking"""
+        """Apply cross-encoder reranking, Cohere reranking, or simple similarity reranking"""
         if not results or not self._reranker:
             return results
         
-        # Prepare pairs for reranking
-        pairs = [(query, r.content[:512]) for r in results]
-        
         try:
-            # Get reranking scores
-            scores = self._reranker.predict(pairs)
-            
-            # Apply sigmoid normalization
-            scores = 1 / (1 + np.exp(-scores))
+            if self._reranker == "cohere-bedrock" and self.bedrock_client:
+                # Use Cohere reranker via Bedrock
+                import json
+                
+                documents = [{"text": r.content[:512]} for r in results]
+                
+                request_body = {
+                    "query": query,
+                    "documents": documents,
+                    "top_n": len(documents),
+                    "return_documents": False
+                }
+                
+                response = self.bedrock_client.invoke_model(
+                    modelId='us.cohere.rerank-v3-5:0',
+                    contentType='application/json',
+                    accept='application/json',
+                    body=json.dumps(request_body)
+                )
+                
+                response_body = json.loads(response['body'].read())
+                rerank_results = response_body.get('results', [])
+                
+                # Update scores based on Cohere reranking
+                reranker_weight = self.fusion_config.get('reranker_weight', 0.5)
+                for rerank_result in rerank_results:
+                    idx = rerank_result['index']
+                    relevance_score = rerank_result['relevance_score']
+                    if idx < len(results):
+                        original_weight = 1 - reranker_weight
+                        results[idx].score = (
+                            original_weight * results[idx].score +
+                            reranker_weight * relevance_score
+                        )
+                
+                # Sort by new scores
+                results.sort(key=lambda x: x.score, reverse=True)
+                return results
+                
+            elif self._reranker == "llm-bedrock" and self.bedrock_client:
+                # Use Claude Haiku as an LLM cross-encoder
+                import json
+                
+                # Batch process for efficiency
+                batch_size = 5
+                all_scores = []
+                
+                for i in range(0, len(results), batch_size):
+                    batch = results[i:i+batch_size]
+                    
+                    prompt = f"""Score the relevance of each document to the query on a scale of 0-1.
+Query: "{query}"
+
+Documents:
+"""
+                    for j, r in enumerate(batch):
+                        prompt += f"\n{j+1}. {r.content[:300]}..."
+                    
+                    prompt += """
+
+Return ONLY a JSON array with relevance scores in order.
+Example: [0.9, 0.3, 0.7, 0.5, 0.8]
+
+Scores:"""
+                    
+                    response = self.bedrock_client.invoke_model(
+                        modelId='us.anthropic.claude-3-5-haiku-20241022-v1:0',
+                        contentType='application/json',
+                        accept='application/json',
+                        body=json.dumps({
+                            'messages': [{'role': 'user', 'content': prompt}],
+                            'anthropic_version': 'bedrock-2023-05-31',
+                            'max_tokens': 100,
+                            'temperature': 0.1
+                        })
+                    )
+                    
+                    response_body = json.loads(response['body'].read())
+                    content = response_body.get('content', [{}])[0].get('text', '[]')
+                    
+                    try:
+                        batch_scores = json.loads(content)
+                        all_scores.extend(batch_scores)
+                    except:
+                        # Fallback to original scores
+                        all_scores.extend([r.score for r in batch])
+                
+                # Update scores based on LLM reranking
+                reranker_weight = self.fusion_config.get('reranker_weight', 0.5)
+                for i, (result, llm_score) in enumerate(zip(results[:len(all_scores)], all_scores)):
+                    original_weight = 1 - reranker_weight
+                    result.score = (
+                        original_weight * result.score +
+                        reranker_weight * float(llm_score)
+                    )
+                
+                # Sort by new scores
+                results.sort(key=lambda x: x.score, reverse=True)
+                return results
+                
+            elif self._reranker == "simple":
+                # Simple cosine similarity reranking using embeddings
+                from sklearn.metrics.pairwise import cosine_similarity
+                
+                # Use OpenAI embeddings if available
+                if hasattr(self, 'embedder') and self.embedder:
+                    query_embedding = self.embedder.embed_text(query)
+                    scores = []
+                    for r in results:
+                        content_embedding = self.embedder.embed_text(r.content[:512])
+                        sim = cosine_similarity([query_embedding], [content_embedding])[0][0]
+                        scores.append(sim)
+                else:
+                    # Fallback to keeping original scores
+                    return results
+            else:
+                # Use cross-encoder if available
+                pairs = [(query, r.content[:512]) for r in results]
+                scores = self._reranker.predict(pairs)
+                # Apply sigmoid normalization
+                scores = 1 / (1 + np.exp(-scores))
             
             # Combine with original scores
             reranker_weight = self.fusion_config.get('reranker_weight', 0.5)

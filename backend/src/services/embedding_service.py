@@ -5,7 +5,12 @@ import os
 from typing import List, Optional
 import logging
 import numpy as np
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMER_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMER_AVAILABLE = False
+    SentenceTransformer = None
 try:
     from openai import OpenAI
     OPENAI_AVAILABLE = True
@@ -41,15 +46,20 @@ class EmbeddingService:
             self.model_name = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
             logger.info("Using OpenAI embeddings")
         else:
-            # Use sentence-transformers as default
-            try:
-                model_name = os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
-                self.model = SentenceTransformer(model_name)
-                self.model_name = model_name
-                self.embedding_model = "sentence-transformers"
-                logger.info(f"Using Sentence Transformers: {model_name}")
-            except Exception as e:
-                logger.warning(f"Failed to load embedding model: {e}")
+            # Use sentence-transformers if available
+            if SENTENCE_TRANSFORMER_AVAILABLE:
+                try:
+                    model_name = os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
+                    self.model = SentenceTransformer(model_name)
+                    self.model_name = model_name
+                    self.embedding_model = "sentence-transformers"
+                    logger.info(f"Using Sentence Transformers: {model_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to load embedding model: {e}")
+                    self.model = None
+                    self.embedding_model = "mock"
+            else:
+                logger.info("Sentence transformers not available, using mock embeddings")
                 self.model = None
                 self.embedding_model = "mock"
     

@@ -8,7 +8,12 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from collections import deque
 import numpy as np
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMER_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMER_AVAILABLE = False
+    SentenceTransformer = None
 
 from ...models import Entity, Relationship, Chunk, RetrievalResult
 from ...services.id_mapper import IDMapper
@@ -81,8 +86,13 @@ class GraphRAG:
         self.use_semantic_pruning = use_semantic_pruning
         
         if use_semantic_pruning:
-            # Load embedding model for semantic similarity
-            self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+            if SENTENCE_TRANSFORMER_AVAILABLE:
+                # Load embedding model for semantic similarity
+                self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+            else:
+                logger.warning("SentenceTransformer not available, disabling semantic pruning")
+                self.use_semantic_pruning = False
+                self.embedder = None
         
         logger.info("GraphRAG initialized for multi-hop reasoning")
     
@@ -344,13 +354,19 @@ class GraphRAG:
         # Combine entity text and relationship type for context
         context_text = f"{entity.text} {relationship.type}"
         
-        # Get embedding for context
-        context_embedding = self.embedder.encode(context_text)
-        
-        # Calculate cosine similarity with query
-        similarity = np.dot(query_embedding[:len(context_embedding)], context_embedding) / (
-            np.linalg.norm(query_embedding[:len(context_embedding)]) * np.linalg.norm(context_embedding)
-        )
+        if self.embedder:
+            # Get embedding for context
+            context_embedding = self.embedder.encode(context_text)
+            
+            # Calculate cosine similarity with query
+            similarity = np.dot(query_embedding[:len(context_embedding)], context_embedding) / (
+                np.linalg.norm(query_embedding[:len(context_embedding)]) * np.linalg.norm(context_embedding)
+            )
+        else:
+            # Simple keyword overlap fallback
+            query_words = set(str(query_embedding).lower().split())
+            context_words = set(context_text.lower().split())
+            similarity = len(query_words & context_words) / max(len(query_words), 1)
         
         # Weight by confidence scores
         weighted_relevance = (
@@ -375,7 +391,7 @@ class GraphRAG:
             coverage_score = len(set(path.nodes)) / max(len(path.nodes), 1)  # Unique nodes
             
             # Calculate semantic coherence of path
-            if self.use_semantic_pruning and len(path.nodes) > 1:
+            if self.use_semantic_pruning and self.embedder and len(path.nodes) > 1:
                 # Check if path forms coherent reasoning
                 path_text = path.reasoning_chain
                 path_embedding = self.embedder.encode(path_text)
@@ -542,7 +558,7 @@ Provide a clear answer with reasoning steps."""
             metrics['path_validity'] = valid_steps / total_steps if total_steps > 0 else 0.0
         
         # Check answer relevance (would need embeddings comparison)
-        if self.use_semantic_pruning:
+        if self.use_semantic_pruning and self.embedder:
             answer_embedding = self.embedder.encode(generated_answer['answer'])
             truth_embedding = self.embedder.encode(ground_truth)
             
