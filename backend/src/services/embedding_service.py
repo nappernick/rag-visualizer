@@ -20,9 +20,20 @@ class EmbeddingService:
     """Service for generating embeddings using various models"""
     
     def __init__(self):
+        self.model = None
+        self.openai_client = None
+        self._initialize_services()
+    
+    def _initialize_services(self):
+        """Initialize or reinitialize services with current environment variables"""
+        # Force reload .env file and read fresh
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
+        
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "sentence-transformers")
-        self.openai_client = None
+        
+        print(f"🔑 EmbeddingService loading API key: {self.openai_api_key[:20]}...{self.openai_api_key[-4:]}")
         
         if self.embedding_model == "openai" and self.openai_api_key and OPENAI_AVAILABLE:
             self.openai_client = OpenAI(api_key=self.openai_api_key)
@@ -47,6 +58,9 @@ class EmbeddingService:
         if not text:
             raise ValueError("Cannot generate embedding for empty text")
         
+        # Always reinitialize services to pick up latest environment variables
+        self._initialize_services()
+        
         try:
             if self.embedding_model == "openai" and self.openai_client:
                 # Use OpenAI API with proper v1.x syntax
@@ -67,12 +81,19 @@ class EmbeddingService:
                 
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
+            # Try to reinitialize once if API key error
+            if "401" in str(e) or "Incorrect API key" in str(e):
+                logger.info("API key error detected, reinitializing services...")
+                self._initialize_services()
             raise  # Don't fall back to mock
     
     async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
         if not texts:
             return []
+        
+        # Always reinitialize services to pick up latest environment variables
+        self._initialize_services()
         
         try:
             if self.embedding_model == "openai" and self.openai_client:
@@ -94,6 +115,10 @@ class EmbeddingService:
                 
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
+            # Try to reinitialize once if API key error
+            if "401" in str(e) or "Incorrect API key" in str(e):
+                logger.info("API key error detected, reinitializing services...")
+                self._initialize_services()
             raise  # Don't fall back to mock
     
     def _mock_embedding(self, text: str) -> List[float]:
@@ -146,9 +171,7 @@ class EmbeddingService:
             return 768  # Default dimension
 
 
-# Dependency injection for lazy initialization
+# Dependency injection - create fresh instance each time for config changes
 def get_embedding_service():
-    """Get or create embedding service instance"""
-    if not hasattr(get_embedding_service, "_instance"):
-        get_embedding_service._instance = EmbeddingService()
-    return get_embedding_service._instance
+    """Get a fresh embedding service instance"""
+    return EmbeddingService()

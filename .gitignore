@@ -3,12 +3,15 @@
 Thumbs.db
 .env
 .env.*
+!.env.example
 *.pid
 *.log
 *:Zone.Identifier
+**/*:Zone.Identifier
 
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 .Python
@@ -19,24 +22,78 @@ ENV/
 build/
 dist/
 *.egg-info/
+.pytest_cache/
+.coverage
+*.db
+*.sqlite
+*.sqlite3
 
 # Node / Frontend
 node_modules/
+**/node_modules/
 dist/
+**/dist/
 .cache/
 coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # Vite
 .vite/
+**/.vite/
 
 # Editor
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
 
-**/*.Identifier
-*.Identifier
+# Temporary files
+*.tmp
+*.bak
+*.zip
+*.tar.gz
+
+# Railway
+.railway/
+
+# Docker
+.docker/
+
+# MacOS
+.DS_Store
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+.Trash-*
+
+# Project specific
+backend.log
+frontend.log
+startup_debug.log
+backend/rag_visualizer.db
+backend/temporal_decay_curves.png
+test_document*.txt
+test_rag.txt
+test.txt
+
+# Keep important files
+!README.md
+!requirements.txt
+!package.json
+!tsconfig.json
+!Dockerfile
+!railway.json
+!.dockerignore

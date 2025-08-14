@@ -13,7 +13,7 @@ load_dotenv()
 from .db import get_session, init_db
 from .models import IDLinkIn, IDLinkOut, TraverseResponse, IngestDocument
 from .services.id_mapper import IDMapper
-from .api import fusion, documents, chunking, graph, visualization, query
+from .api import fusion, documents, chunking, graph, visualization, query, concurrent_processing
 
 
 def get_db():
@@ -44,6 +44,7 @@ app.include_router(chunking.router)
 app.include_router(graph.router)
 app.include_router(visualization.router)
 app.include_router(query.router)
+app.include_router(concurrent_processing.router)
 
 
 @app.get("/health")

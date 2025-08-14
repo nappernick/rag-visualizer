@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
     chunk_type TEXT,
     tokens INTEGER,
     parent_id TEXT,
+    children_ids JSONB DEFAULT '[]',
     metadata JSONB,
     created_at TIMESTAMP DEFAULT NOW()
 );

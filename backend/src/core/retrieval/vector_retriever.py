@@ -10,7 +10,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 from ...models import RetrievalResult, Chunk
 from ...services.id_mapper import IDMapper
 from ...db import get_session
-from ..config import config
+from ..config import ServiceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +25,18 @@ class VectorRetriever:
         self.client = None
         
         # Check if Qdrant is enabled in configuration
-        if not config.is_qdrant_enabled():
+        if not ServiceConfig.is_qdrant_enabled():
             logger.info("Qdrant is disabled in configuration")
             return
         
         try:
-            # Get Qdrant configuration
-            qdrant_config = config.get_qdrant_config()
+            # Get Qdrant configuration from ServiceConfig
+            qdrant_config = {
+                'url': ServiceConfig.QDRANT_URL,
+                'api_key': ServiceConfig.QDRANT_API_KEY,
+                'host': ServiceConfig.QDRANT_HOST,
+                'port': ServiceConfig.QDRANT_PORT
+            }
             
             if 'url' in qdrant_config and 'api_key' in qdrant_config:
                 self.client = QdrantClient(

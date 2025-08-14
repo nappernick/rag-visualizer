@@ -1,0 +1,2 @@
+[environments.production]
+RAILWAY_DOCKERFILE_PATH = "Dockerfile"
