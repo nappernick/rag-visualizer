@@ -1,23 +1,19 @@
-# Use Python 3.11 slim image for smaller size
+# Minimal Dockerfile for production - optimized for Railway
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install only essential runtime dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
-    g++ \
+    --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY backend/requirements.txt ./requirements.txt
+# Copy production requirements
+COPY backend/requirements-prod.txt ./requirements.txt
 
-# Install Python dependencies
+# Install dependencies with no cache
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Download spaCy model
-RUN python -m spacy download en_core_web_sm
 
 # Copy backend source code
 COPY backend/ ./backend/
@@ -25,8 +21,10 @@ COPY backend/ ./backend/
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+ENV EMBEDDING_MODEL=openai
+ENV USE_CLAUDE_EXTRACTION=true
 
-# Expose port (Railway will override with PORT env variable)
+# Expose port
 EXPOSE 8000
 
 # Start the FastAPI application
