@@ -3,6 +3,7 @@ import { QueryInput } from './QueryInput';
 import { ResultsPanel } from './ResultsPanel';
 import { DocumentPreview } from './DocumentPreview';
 import { QueryDecomposition } from './QueryDecomposition';
+import { RetrievalSummary } from './RetrievalSummary';
 import { demoApi } from '../../../services/demoApi';
 import type { Document, Chunk, Entity } from '../../../types';
 
@@ -12,6 +13,8 @@ interface SearchInterfaceProps {
   entities: Entity[];
   onSearchComplete: (searchData: any) => void;
   onDocumentSelect: (doc: Document) => void;
+  persistentState?: any;
+  onStateChange?: (state: any) => void;
 }
 
 export const SearchInterface: React.FC<SearchInterfaceProps> = ({
@@ -19,18 +22,37 @@ export const SearchInterface: React.FC<SearchInterfaceProps> = ({
   chunks,
   entities,
   onSearchComplete,
-  onDocumentSelect
+  onDocumentSelect,
+  persistentState,
+  onStateChange
 }) => {
-  const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [decomposition, setDecomposition] = useState<any>(null);
-  const [selectedResult, setSelectedResult] = useState<any>(null);
-  const [previewDocument, setPreviewDocument] = useState<Document | null>(null);
+  // Use persistent state if provided, otherwise use local state
+  const [query, setQuery] = useState(persistentState?.query || '');
+  const [searchResults, setSearchResults] = useState<any[]>(persistentState?.results || []);
+  const [decomposition, setDecomposition] = useState<any>(persistentState?.decomposition || null);
+  const [selectedResult, setSelectedResult] = useState<any>(persistentState?.selectedResult || null);
+  const [previewDocument, setPreviewDocument] = useState<Document | null>(persistentState?.previewDocument || null);
   const [loading, setLoading] = useState(false);
-  const [searchMetrics, setSearchMetrics] = useState<any>(null);
-  const [searchMode, setSearchMode] = useState<'smart' | 'vector' | 'graph' | 'hybrid'>('smart');
-  const [showDecomposition, setShowDecomposition] = useState(false);
+  const [searchMetrics, setSearchMetrics] = useState<any>(persistentState?.metrics || null);
+  const [searchMode, setSearchMode] = useState<'smart' | 'vector' | 'graph' | 'hybrid'>(persistentState?.searchMode || 'smart');
+  const [showDecomposition, setShowDecomposition] = useState(persistentState?.showDecomposition || false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  
+  // Update persistent state when local state changes
+  useEffect(() => {
+    if (onStateChange) {
+      onStateChange({
+        query,
+        results: searchResults,
+        selectedResult,
+        decomposition,
+        metrics: searchMetrics,
+        previewDocument,
+        searchMode,
+        showDecomposition
+      });
+    }
+  }, [query, searchResults, selectedResult, decomposition, searchMetrics, previewDocument, searchMode, showDecomposition]);
 
   // Fetch query suggestions
   useEffect(() => {
@@ -229,6 +251,15 @@ export const SearchInterface: React.FC<SearchInterfaceProps> = ({
       {/* Query Decomposition */}
       {showDecomposition && decomposition && (
         <QueryDecomposition decomposition={decomposition} />
+      )}
+
+      {/* Retrieval Summary */}
+      {searchResults.length > 0 && (
+        <RetrievalSummary 
+          results={searchResults}
+          query={query}
+          processingTime={searchMetrics?.processingTime}
+        />
       )}
 
       {/* Main Content Area */}

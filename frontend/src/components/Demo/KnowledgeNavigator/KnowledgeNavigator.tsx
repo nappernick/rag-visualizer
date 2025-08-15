@@ -7,22 +7,26 @@ interface KnowledgeNavigatorProps {
   relationships: Relationship[];
   chunks: Chunk[];
   documents: Document[];
+  persistentState?: any;
+  onStateChange?: (state: any) => void;
 }
 
 export const KnowledgeNavigator: React.FC<KnowledgeNavigatorProps> = ({
   entities,
   relationships,
   chunks,
-  documents
+  documents,
+  persistentState,
+  onStateChange
 }) => {
-  const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
-  const [explorationResults, setExplorationResults] = useState<any>(null);
-  const [pathFindingMode, setPathFindingMode] = useState(false);
-  const [startEntity, setStartEntity] = useState<string>('');
-  const [endEntity, setEndEntity] = useState<string>('');
-  const [pathResults, setPathResults] = useState<any>(null);
+  const [selectedEntity, setSelectedEntity] = useState<Entity | null>(persistentState?.selectedEntity || null);
+  const [explorationResults, setExplorationResults] = useState<any>(persistentState?.explorationResults || null);
+  const [pathFindingMode, setPathFindingMode] = useState(persistentState?.pathFindingMode || false);
+  const [startEntity, setStartEntity] = useState<Entity | null>(persistentState?.startEntity || null);
+  const [endEntity, setEndEntity] = useState<Entity | null>(persistentState?.endEntity || null);
+  const [pathResults, setPathResults] = useState<any>(persistentState?.pathResults || null);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(persistentState?.searchTerm || '');
 
   const filteredEntities = entities.filter(e =>
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -30,17 +34,34 @@ export const KnowledgeNavigator: React.FC<KnowledgeNavigatorProps> = ({
   );
 
   const handleEntitySelect = async (entity: Entity) => {
-    setSelectedEntity(entity);
-    
-    // Explore from this entity
-    setLoading(true);
-    try {
-      const results = await demoApi.exploreGraph([entity.id], 2, 10);
-      setExplorationResults(results);
-    } catch (error) {
-      console.error('Error exploring graph:', error);
-    } finally {
-      setLoading(false);
+    if (pathFindingMode) {
+      // In path finding mode, allow selecting start and end entities
+      if (!startEntity) {
+        setStartEntity(entity);
+        setSelectedEntity(entity);
+      } else if (!endEntity && entity.id !== startEntity.id) {
+        setEndEntity(entity);
+      } else {
+        // Reset and start over
+        setStartEntity(entity);
+        setEndEntity(null);
+        setPathResults(null);
+        setSelectedEntity(entity);
+      }
+    } else {
+      // Normal mode - explore from this entity
+      setSelectedEntity(entity);
+      setLoading(true);
+      
+      try {
+        const results = await demoApi.exploreGraph([entity.id], 2, 10);
+        setExplorationResults(results);
+      } catch (error) {
+        console.error('Error exploring graph:', error);
+        setExplorationResults(null);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -49,13 +70,21 @@ export const KnowledgeNavigator: React.FC<KnowledgeNavigatorProps> = ({
     
     setLoading(true);
     try {
-      const results = await demoApi.findPath(startEntity, endEntity, 3);
+      const results = await demoApi.findPath(startEntity.id, endEntity.id, 3);
       setPathResults(results);
     } catch (error) {
       console.error('Error finding path:', error);
+      setPathResults(null);
     } finally {
       setLoading(false);
     }
+  };
+  
+  const resetPathFinding = () => {
+    setStartEntity(null);
+    setEndEntity(null);
+    setPathResults(null);
+    setPathFindingMode(false);
   };
 
   const getEntityTypeColor = (type: string) => {
@@ -90,29 +119,42 @@ export const KnowledgeNavigator: React.FC<KnowledgeNavigatorProps> = ({
 
         {pathFindingMode ? (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                type="text"
-                value={startEntity}
-                onChange={(e) => setStartEntity(e.target.value)}
-                placeholder="Start entity..."
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-              <input
-                type="text"
-                value={endEntity}
-                onChange={(e) => setEndEntity(e.target.value)}
-                placeholder="End entity..."
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
+            <div className="text-sm text-gray-600 mb-2">
+              Click entities below to select start and end points for path finding
             </div>
-            <button
-              onClick={handleFindPath}
-              disabled={!startEntity || !endEntity || loading}
-              className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
-            >
-              {loading ? 'Finding Path...' : 'Find Connection'}
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 bg-white border-2 border-purple-300 rounded-lg">
+                <div className="text-xs font-medium text-purple-600 mb-1">Start Entity</div>
+                {startEntity ? (
+                  <div className="font-medium text-gray-900">{startEntity.name}</div>
+                ) : (
+                  <div className="text-gray-400">Click to select...</div>
+                )}
+              </div>
+              <div className="p-3 bg-white border-2 border-purple-300 rounded-lg">
+                <div className="text-xs font-medium text-purple-600 mb-1">End Entity</div>
+                {endEntity ? (
+                  <div className="font-medium text-gray-900">{endEntity.name}</div>
+                ) : (
+                  <div className="text-gray-400">Click to select...</div>
+                )}
+              </div>
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleFindPath}
+                disabled={!startEntity || !endEntity || loading}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
+              >
+                {loading ? 'Finding Path...' : 'Find Connection'}
+              </button>
+              <button
+                onClick={resetPathFinding}
+                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                Reset
+              </button>
+            </div>
           </div>
         ) : (
           <div className="relative">

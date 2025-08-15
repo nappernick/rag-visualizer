@@ -21,12 +21,35 @@ export const DemoTab: React.FC<DemoTabProps> = ({
   chunks,
   entities,
   relationships,
-  loading,
+  loading: parentLoading,
   onDocumentSelect
 }) => {
   const [viewMode, setViewMode] = useState<DemoViewMode>('search');
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [searchHistory, setSearchHistory] = useState<any[]>([]);
+  
+  // Persistent state for each view - doesn't reset when switching tabs
+  const [searchState, setSearchState] = useState<any>({
+    query: '',
+    results: [],
+    selectedResult: null,
+    decomposition: null,
+    metrics: null
+  });
+  
+  const [explorerState, setExplorerState] = useState<any>({
+    selectedDoc: null,
+    summary: null
+  });
+  
+  const [navigatorState, setNavigatorState] = useState<any>({
+    selectedEntity: null,
+    explorationResults: null,
+    pathResults: null
+  });
+  
+  // Local loading state
+  const [loading, setLoading] = useState(false);
 
   const handleDocumentSelect = (doc: Document) => {
     setSelectedDocument(doc);
@@ -35,6 +58,11 @@ export const DemoTab: React.FC<DemoTabProps> = ({
 
   const handleSearchComplete = (searchData: any) => {
     setSearchHistory(prev => [searchData, ...prev].slice(0, 20)); // Keep last 20 searches
+    // Also save to persistent search state
+    setSearchState(prev => ({
+      ...prev,
+      ...searchData
+    }));
   };
 
   return (
@@ -110,36 +138,43 @@ export const DemoTab: React.FC<DemoTabProps> = ({
 
       {/* Content Area */}
       <div className="p-6">
-        {viewMode === 'search' && (
+        {/* Always render components but hide them to maintain state */}
+        <div style={{ display: viewMode === 'search' ? 'block' : 'none' }}>
           <SearchInterface
             documents={documents}
             chunks={chunks}
             entities={entities}
             onSearchComplete={handleSearchComplete}
             onDocumentSelect={handleDocumentSelect}
+            persistentState={searchState}
+            onStateChange={setSearchState}
           />
-        )}
+        </div>
 
-        {viewMode === 'explore' && (
+        <div style={{ display: viewMode === 'explore' ? 'block' : 'none' }}>
           <DocumentExplorer
             documents={documents}
             chunks={chunks}
             entities={entities}
             onDocumentSelect={handleDocumentSelect}
             selectedDocument={selectedDocument}
+            persistentState={explorerState}
+            onStateChange={setExplorerState}
           />
-        )}
+        </div>
 
-        {viewMode === 'navigate' && (
+        <div style={{ display: viewMode === 'navigate' ? 'block' : 'none' }}>
           <KnowledgeNavigator
             entities={entities}
             relationships={relationships}
             chunks={chunks}
             documents={documents}
+            persistentState={navigatorState}
+            onStateChange={setNavigatorState}
           />
-        )}
+        </div>
 
-        {viewMode === 'analytics' && (
+        <div style={{ display: viewMode === 'analytics' ? 'block' : 'none' }}>
           <Analytics
             searchHistory={searchHistory}
             documents={documents}
@@ -147,7 +182,7 @@ export const DemoTab: React.FC<DemoTabProps> = ({
             entities={entities}
             relationships={relationships}
           />
-        )}
+        </div>
       </div>
 
       {/* Loading Overlay */}

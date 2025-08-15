@@ -8,6 +8,8 @@ interface DocumentExplorerProps {
   entities: Entity[];
   onDocumentSelect: (doc: Document) => void;
   selectedDocument: Document | null;
+  persistentState?: any;
+  onStateChange?: (state: any) => void;
 }
 
 export const DocumentExplorer: React.FC<DocumentExplorerProps> = ({

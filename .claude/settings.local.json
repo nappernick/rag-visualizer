@@ -45,7 +45,8 @@
       "Bash(PYTHONPATH=/home/nmatnich/rag-visualizer python -m backend.src.main)",
       "Bash(docker:*)",
       "mcp__exa__deep_researcher_check",
-      "mcp__exa__deep_researcher_start"
+      "mcp__exa__deep_researcher_start",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": [],
