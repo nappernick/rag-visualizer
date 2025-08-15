@@ -4,10 +4,11 @@ import { ChunkVisualizer } from './components/ChunkVisualizer/ChunkVisualizer';
 import { GraphViewer } from './components/GraphViewer/GraphViewer';
 import { FusionControls } from './components/FusionControls/FusionControls';
 import { DemoTab } from './components/Demo/DemoTab';
+import { WeightRulesManager } from './components/WeightRules/WeightRulesManager';
 import { documentApi, chunkingApi, graphApi, queryApi } from './services/api';
 import type { Document, Chunk, Entity, Relationship, ChunkingRequest } from './types';
 
-type TabType = 'upload' | 'chunks' | 'graph' | 'query' | 'stats' | 'demo';
+type TabType = 'upload' | 'chunks' | 'graph' | 'query' | 'stats' | 'demo' | 'weights';
 
 function App() {
   // State
@@ -455,6 +456,18 @@ function App() {
               `}
             >
               🚀 Demo
+            </button>
+            <button
+              onClick={() => setActiveTab('weights')}
+              className={`
+                flex-1 py-3 px-4 rounded-lg font-medium text-sm transition-all duration-200
+                ${activeTab === 'weights'
+                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg transform scale-105'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }
+              `}
+            >
+              ⚖️ Weights
             </button>
           </nav>
         </div>
@@ -1015,6 +1028,10 @@ function App() {
             loading={loading}
             onDocumentSelect={handleSelectDocument}
           />
+        )}
+
+        {activeTab === 'weights' && (
+          <WeightRulesManager documents={documents} />
         )}
 
         {activeTab === 'stats' && (

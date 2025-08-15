@@ -46,7 +46,14 @@
       "Bash(docker:*)",
       "mcp__exa__deep_researcher_check",
       "mcp__exa__deep_researcher_start",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(supabase db:*)",
+      "Bash(sudo apt-get:*)",
+      "Bash(sudo apt-get install:*)",
+      "Bash(export SUPABASE_DB_PASSWORD='VERECub\\!@\\!\\!')",
+      "Bash(supabase link:*)",
+      "Bash(export SUPABASE_DB_PASSWORD='dnGy85pmv2jKVWQ2')",
+      "Bash(supabase status:*)"
     ],
     "deny": [],
     "ask": [],

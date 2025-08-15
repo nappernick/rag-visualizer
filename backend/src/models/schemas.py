@@ -1,10 +1,10 @@
 """
 Data models for RAG Visualizer
 """
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Union
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 import uuid
 
 
@@ -82,6 +82,7 @@ class Document(BaseModel):
     content: str
     doc_type: str = "text"
     status: DocumentStatus = DocumentStatus.PENDING
+    weight: float = Field(default=1.0, ge=0.1, le=10.0, description="Document weight/priority (0.1-10.0)")
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -218,3 +219,108 @@ class VisualizationData(BaseModel):
     knowledge_graph: Optional[GraphData] = None
     embedding_space: Optional[EmbeddingSpace] = None
     retrieval_flow: Optional[Dict[str, Any]] = None
+
+
+# Weight Rules Models
+class RuleType(str, Enum):
+    DOCUMENT_TYPE = "document_type"
+    TITLE_PATTERN = "title_pattern"
+    TEMPORAL = "temporal"
+    CONTENT = "content"
+    MANUAL = "manual"
+
+
+class PatternMatch(BaseModel):
+    match: Literal["contains", "startsWith", "endsWith", "regex", "exact"]
+    value: str
+    weight: float = Field(ge=0.1, le=10.0)
+    case_sensitive: bool = False
+
+
+class TemporalRange(BaseModel):
+    within: Optional[str] = None  # e.g., "7d", "30d", "1y"
+    older_than: Optional[str] = None
+    newer_than: Optional[str] = None
+    weight: float = Field(ge=0.1, le=10.0)
+
+
+class WeightRuleConditions(BaseModel):
+    # For document_type rules
+    type_weights: Optional[Dict[str, float]] = None
+    
+    # For title_pattern rules
+    patterns: Optional[List[PatternMatch]] = None
+    
+    # For temporal rules
+    ranges: Optional[List[TemporalRange]] = None
+    
+    # For content rules
+    content_patterns: Optional[List[PatternMatch]] = None
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    
+    # For manual rules
+    document_ids: Optional[List[str]] = None
+    document_patterns: Optional[List[str]] = None
+
+
+class WeightRule(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    rule_type: RuleType
+    enabled: bool = True
+    priority: int = Field(default=0, description="Higher priority rules are applied first")
+    conditions: WeightRuleConditions
+    weight_modifier: float = Field(default=1.0, ge=0.1, le=10.0)
+    affected_count: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    class Config:
+        use_enum_values = True
+
+
+class AppliedRule(BaseModel):
+    rule_id: str
+    rule_name: str
+    rule_type: str
+    weight_applied: float
+    reason: str
+
+
+class WeightCalculation(BaseModel):
+    document_id: str
+    document_title: str
+    base_weight: float = 1.0
+    applied_rules: List[AppliedRule] = Field(default_factory=list)
+    final_weight: float
+    calculation_path: str
+    calculated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WeightRuleRequest(BaseModel):
+    name: str
+    rule_type: RuleType
+    enabled: bool = True
+    priority: int = 0
+    conditions: Dict[str, Any]
+    weight_modifier: float = Field(default=1.0, ge=0.1, le=10.0)
+
+
+class WeightRuleResponse(BaseModel):
+    rule: WeightRule
+    affected_documents: List[Document]
+    preview_calculations: List[WeightCalculation]
+
+
+class WeightSimulationRequest(BaseModel):
+    rules: List[WeightRule]
+    document_ids: Optional[List[str]] = None  # If None, simulate on all documents
+
+
+class WeightSimulationResponse(BaseModel):
+    total_documents: int
+    calculations: List[WeightCalculation]
+    weight_distribution: Dict[str, int]  # Range -> count mapping
+    average_weight: float
+    median_weight: float

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime
+import logging
 
 from ..db import get_session
 from ..core.retrieval.hybrid_search import EnhancedHybridSearch
@@ -16,8 +17,10 @@ from ..services.embedding_service import get_embedding_service
 from ..services.storage import get_storage_service
 from ..core.scoring.match_scorer import MatchScorer
 from ..core.scoring.fusion_ranker import FusionRanker
+from ..services.weight_service import get_weight_service
 
 router = APIRouter(prefix="/api", tags=["query"])
+logger = logging.getLogger(__name__)
 
 
 class QueryRequest(BaseModel):
@@ -110,8 +113,28 @@ async def query_documents(
                     score_threshold=0.0  # Remove threshold to get more results
                 )
                 
+                # Get weight service for document weight calculations
+                weight_service = get_weight_service()
+                
                 # Convert vector results to QueryResult format with independent match scoring
                 for i, result in enumerate(vector_results):
+                    # Get document weight if available
+                    document_weight = 1.0
+                    if result.get("document_id"):
+                        # Try to get document from storage to retrieve its weight
+                        try:
+                            storage = get_storage_service()
+                            doc = await storage.get_document(result["document_id"])
+                            if doc:
+                                # Calculate document weight based on rules
+                                from ..models.schemas import Document as DocModel
+                                doc_model = DocModel(**doc)
+                                weight_calc = await weight_service.calculate_document_weight(doc_model)
+                                document_weight = weight_calc.final_weight
+                        except Exception as e:
+                            logger.debug(f"Could not get document weight: {e}")
+                            document_weight = result.get("metadata", {}).get("document_weight", 1.0)
+                    
                     # Calculate independent match score (0-100%)
                     match_score = MatchScorer.calculate_vector_match_score(
                         query=request.query,
@@ -120,8 +143,8 @@ async def query_documents(
                         metadata=result.get("metadata", {})
                     )
                     
-                    # Calculate ranking score for ordering (this changes with slider)
-                    ranking_score = match_score * vector_weight * temporal_weight
+                    # Calculate ranking score for ordering (includes document weight)
+                    ranking_score = match_score * vector_weight * temporal_weight * document_weight
                     
                     query_result = QueryResult(
                         id=f"vector_{i}",
@@ -133,6 +156,7 @@ async def query_documents(
                             "doc_type": result["metadata"].get("doc_type", "default"),
                             "cosine_similarity": result["score"],  # Store raw cosine score
                             "vector_weight": vector_weight,
+                            "document_weight": document_weight,
                             "match_explanation": MatchScorer.explain_score(match_score, "vector")
                         },
                         source="vector",

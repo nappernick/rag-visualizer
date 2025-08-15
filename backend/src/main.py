@@ -29,7 +29,7 @@ else:
 from .db import get_session, init_db
 from .models import IDLinkIn, IDLinkOut, TraverseResponse, IngestDocument
 from .services.id_mapper import IDMapper
-from .api import fusion, documents, chunking, graph, visualization, query, concurrent_processing, demo
+from .api import fusion, documents, chunking, graph, visualization, query, concurrent_processing, demo, weight_rules
 
 
 def get_db():
@@ -62,6 +62,7 @@ app.include_router(visualization.router)
 app.include_router(query.router)
 app.include_router(concurrent_processing.router)
 app.include_router(demo.router)
+app.include_router(weight_rules.router)
 
 
 @app.get("/health")

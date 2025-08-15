@@ -6,6 +6,7 @@ export interface Document {
   content: string;
   doc_type: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  weight: number; // Document priority weight (0.1-10.0)
   metadata: Record<string, any>;
   created_at: string;
   updated_at: string;
@@ -128,4 +129,88 @@ export interface VisualizationData {
     }>;
   };
   retrieval_flow?: Record<string, any>;
+}
+
+// Weight Rules Types
+export type RuleType = 'document_type' | 'title_pattern' | 'temporal' | 'content' | 'manual';
+
+export type PatternMatchType = 'contains' | 'startsWith' | 'endsWith' | 'regex' | 'exact';
+
+export interface PatternMatch {
+  match: PatternMatchType;
+  value: string;
+  weight: number;
+  case_sensitive?: boolean;
+}
+
+export interface TemporalRange {
+  within?: string; // e.g., "7d", "30d", "1y"
+  older_than?: string;
+  newer_than?: string;
+  weight: number;
+}
+
+export interface WeightRuleConditions {
+  // For document_type rules
+  type_weights?: Record<string, number>;
+  
+  // For title_pattern rules
+  patterns?: PatternMatch[];
+  
+  // For temporal rules
+  ranges?: TemporalRange[];
+  
+  // For content rules
+  content_patterns?: PatternMatch[];
+  min_length?: number;
+  max_length?: number;
+  
+  // For manual rules
+  document_ids?: string[];
+  document_patterns?: string[];
+}
+
+export interface WeightRule {
+  id: string;
+  name: string;
+  rule_type: RuleType;
+  enabled: boolean;
+  priority: number;
+  conditions: WeightRuleConditions;
+  weight_modifier: number;
+  affected_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AppliedRule {
+  rule_id: string;
+  rule_name: string;
+  rule_type: string;
+  weight_applied: number;
+  reason: string;
+}
+
+export interface WeightCalculation {
+  document_id: string;
+  document_title: string;
+  base_weight: number;
+  applied_rules: AppliedRule[];
+  final_weight: number;
+  calculation_path: string;
+  calculated_at: string;
+}
+
+export interface WeightDistribution {
+  range: string;
+  count: number;
+  percentage: number;
+}
+
+export interface WeightSimulation {
+  total_documents: number;
+  calculations: WeightCalculation[];
+  weight_distribution: Record<string, number>;
+  average_weight: number;
+  median_weight: number;
 }
