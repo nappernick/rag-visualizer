@@ -19,25 +19,23 @@ class ServiceManager:
     
     @classmethod
     def reload_env(cls) -> bool:
-        """Force reload environment variables from .env file"""
-        # Find .env file
+        """Force reload environment variables from .env file if it exists"""
+        # Find .env file - but don't fail if it doesn't exist (for deployments)
         env_path = Path(__file__).parent.parent.parent.parent / ".env"
-        if not env_path.exists():
-            logger.warning(f".env file not found at {env_path}")
-            return False
-        
-        # Calculate hash of .env file to detect changes
-        with open(env_path, 'rb') as f:
-            import hashlib
-            env_hash = hashlib.md5(f.read()).hexdigest()
-        
-        # Only reload if changed
-        if env_hash != cls._env_hash:
-            load_dotenv(env_path, override=True)
-            cls._env_hash = env_hash
-            cls._instances.clear()  # Clear all cached instances
-            logger.info("✅ Reloaded environment variables from .env")
-            return True
+        if env_path.exists():
+            # Calculate hash of .env file to detect changes
+            with open(env_path, 'rb') as f:
+                import hashlib
+                env_hash = hashlib.md5(f.read()).hexdigest()
+            
+            # Only reload if changed
+            if env_hash != cls._env_hash:
+                load_dotenv(env_path, override=True)
+                cls._env_hash = env_hash
+                cls._instances.clear()  # Clear all cached instances
+                logger.info("✅ Reloaded environment variables from .env")
+                return True
+        # In deployment, env vars are already set - no file needed
         return False
     
     @classmethod

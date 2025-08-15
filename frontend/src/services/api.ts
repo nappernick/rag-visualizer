@@ -72,6 +72,7 @@ export const graphApi = {
       extract_entities: true,
       extract_relationships: true,
       use_spacy: true,
+      use_claude: false,  // Use enhanced SpaCy extraction with technical terms
     });
     return response.data;
   },

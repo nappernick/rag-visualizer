@@ -38,7 +38,14 @@
       "WebFetch(domain:neo4j.com)",
       "WebFetch(domain:github.com)",
       "Bash(cp:*)",
-      "Bash(docker build:*)"
+      "Bash(docker build:*)",
+      "Bash(railway status:*)",
+      "Bash(railway variables set:*)",
+      "Bash(railway variables:*)",
+      "Bash(PYTHONPATH=/home/nmatnich/rag-visualizer python -m backend.src.main)",
+      "Bash(docker:*)",
+      "mcp__exa__deep_researcher_check",
+      "mcp__exa__deep_researcher_start"
     ],
     "deny": [],
     "ask": [],

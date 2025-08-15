@@ -136,18 +136,39 @@ For the RAG (Retrieval-Augmented Generation) domain, pay special attention to:
 - Programming languages and libraries
 - Key concepts and patterns
 
-CRITICAL REQUIREMENTS:
-1. Extract meaningful relationships that are visible or strongly implied in the image/document
+CRITICAL ENTITY EXTRACTION RULES:
+1. Extract ONLY meaningful, substantive entities (NOT formatting, artifacts, or gibberish)
+2. NEVER extract:
+   - Markdown artifacts (####, \langle, page_0_Figure, etc.)
+   - Currency symbols or standalone numbers (MONEY, DATE tags)
+   - File paths or image references unless they are discussed as entities
+   - Formatting symbols or LaTeX markup
+   - Partial words or broken text
+   - Generic words like "page", "figure", "table" unless they are actual named entities
+3. Entity names should be:
+   - Clean, human-readable text
+   - Properly capitalized
+   - Free of special characters (except when part of the actual name like "C++")
+   - At least 2 characters long
+4. Focus on extracting:
+   - Actual named entities (people, companies, products)
+   - Technical terms and concepts
+   - Technologies and frameworks
+   - Important domain-specific vocabulary
+
+RELATIONSHIP EXTRACTION RULES:
+1. Extract meaningful relationships that are visible or strongly implied in the document
 2. Do NOT force every entity to be connected - only create natural relationships
 3. Use broad relationships like "RELATES_TO" or "ASSOCIATED_WITH" if specific relationships are unclear
 4. Prioritize creating a cohesive, navigable graph structure over perfect precision
 5. Only create relationships when there's clear evidence of interaction, dependency, or association
+6. Limit to ~50 most important relationships to avoid overwhelming the graph
 
 Return your response as a JSON object with this structure:
 {
   "entities": [
     {
-      "name": "Entity Name",
+      "name": "Entity Name",  // Clean, readable name without artifacts
       "type": "entity_type",  // e.g., "person", "organization", "technology", "concept", "model", "database", "framework"
       "metadata": {}  // Optional additional properties
     }
@@ -163,7 +184,7 @@ Return your response as a JSON object with this structure:
   ]
 }
 
-IMPORTANT: Extract relationships that are clearly visible or logically implied in the image/document. Avoid forcing artificial connections just to connect all entities.
+REMEMBER: Quality over quantity. Extract only clean, meaningful entities that represent actual concepts, not formatting artifacts.
 
 Content to analyze:
 """

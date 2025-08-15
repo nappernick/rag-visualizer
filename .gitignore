@@ -17,6 +17,7 @@ __pycache__/
 .Python
 env/
 venv/
+**/test_venv/
 .venv/
 ENV/
 build/

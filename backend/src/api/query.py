@@ -14,6 +14,8 @@ from ..services.vector_service import get_vector_service
 from ..services.graph_service import get_graph_service
 from ..services.embedding_service import get_embedding_service
 from ..services.storage import get_storage_service
+from ..core.scoring.match_scorer import MatchScorer
+from ..core.scoring.fusion_ranker import FusionRanker
 
 router = APIRouter(prefix="/api", tags=["query"])
 
@@ -31,11 +33,12 @@ class QueryRequest(BaseModel):
 class QueryResult(BaseModel):
     id: str
     content: str
-    score: float
+    score: float  # This will be the match percentage (0-100)
     metadata: Dict = {}
     source: str
     document_id: Optional[str] = None
     chunk_id: Optional[str] = None
+    ranking_score: Optional[float] = None  # Used internally for ordering
 
 
 class QueryResponse(BaseModel):
@@ -107,25 +110,35 @@ async def query_documents(
                     score_threshold=0.0  # Remove threshold to get more results
                 )
                 
-                # Convert vector results to QueryResult format
+                # Convert vector results to QueryResult format with independent match scoring
                 for i, result in enumerate(vector_results):
-                    # Normalize score to percentage (cosine similarity is between -1 and 1, but typically 0-1)
-                    normalized_score = min(max(result["score"], 0.0), 1.0)
+                    # Calculate independent match score (0-100%)
+                    match_score = MatchScorer.calculate_vector_match_score(
+                        query=request.query,
+                        content=result["content"],
+                        cosine_similarity=result["score"],
+                        metadata=result.get("metadata", {})
+                    )
+                    
+                    # Calculate ranking score for ordering (this changes with slider)
+                    ranking_score = match_score * vector_weight * temporal_weight
                     
                     query_result = QueryResult(
                         id=f"vector_{i}",
                         content=result["content"],
-                        score=normalized_score * temporal_weight * vector_weight,  # Apply fusion weight
+                        score=match_score,  # Independent match percentage (0-100)
                         metadata={
                             "chunk_type": result["chunk_type"],
                             "temporal_score": result["temporal_score"],
                             "doc_type": result["metadata"].get("doc_type", "default"),
-                            "original_score": result["score"],
-                            "vector_weight": vector_weight
+                            "cosine_similarity": result["score"],  # Store raw cosine score
+                            "vector_weight": vector_weight,
+                            "match_explanation": MatchScorer.explain_score(match_score, "vector")
                         },
                         source="vector",
                         document_id=result["document_id"],
-                        chunk_id=result["chunk_id"]
+                        chunk_id=result["chunk_id"],
+                        ranking_score=ranking_score
                     )
                     results.append(query_result)
         
@@ -157,34 +170,24 @@ async def query_documents(
             # Combine graph entities with traversal results
             all_graph_entities = graph_entities + traversal_entities
             
-            # Add entity-based results using production graph scores
+            # Add entity-based results with independent match scoring
             for i, entity in enumerate(all_graph_entities):
-                # Use production relevance score (already optimized for 95%+ accuracy)
-                production_score = entity.get("relevance_score", 0.5)
                 confidence = entity.get("confidence", 0.5)
                 match_type = entity.get("match_type", "exact")
-                
-                # Match type scoring based on research best practices
-                match_type_weights = {
-                    "exact": 1.0,       # Exact string matches (highest confidence)
-                    "fuzzy": 0.85,      # Word-level fuzzy matches
-                    "traversal": 0.7,   # Found through relationship traversal
-                    "frequency": 0.6    # High-frequency entity discovery
-                }
-                
-                type_weight = match_type_weights.get(match_type, 0.5)
-                
-                # Path distance penalty (only for traversal matches)
                 path_length = entity.get("path_length", 0) or 0
-                distance_penalty = 1.0 if path_length == 0 else max(0.3, 1.0 - (path_length * 0.15))
                 
-                # Confidence boost for high-confidence matches
-                confidence_boost = 1.0 + (confidence - 0.5) * 0.3
+                # Calculate independent match score (0-100%)
+                match_score = MatchScorer.calculate_graph_match_score(
+                    query=request.query,
+                    entity_name=entity["name"],
+                    entity_type=entity["entity_type"],
+                    match_type=match_type,
+                    confidence=confidence,
+                    path_length=path_length
+                )
                 
-                # Production final score formula based on research
-                final_score = (
-                    production_score * type_weight * distance_penalty * confidence_boost
-                ) * temporal_weight * graph_weight
+                # Calculate ranking score for ordering (this changes with slider)
+                ranking_score = match_score * graph_weight * temporal_weight
                 
                 # Build enhanced content with production context
                 content_parts = [f"Entity: {entity['name']} (Type: {entity['entity_type']})"]
@@ -218,30 +221,79 @@ async def query_documents(
                 query_result = QueryResult(
                     id=f"graph_{i}",
                     content=" | ".join(content_parts),
-                    score=final_score,
+                    score=match_score,  # Independent match percentage (0-100)
                     metadata={
                         "entity_id": entity["id"],
                         "entity_type": entity["entity_type"],
                         "frequency": entity["frequency"],
-                        "production_score": production_score,
                         "confidence": confidence,
                         "match_type": match_type,
                         "all_match_types": all_match_types,
                         "path_length": path_length,
-                        "type_weight": type_weight,
-                        "distance_penalty": distance_penalty,
-                        "confidence_boost": confidence_boost,
                         "graph_weight": graph_weight,
+                        "match_explanation": MatchScorer.explain_score(match_score, "graph", {"match_type": match_type, "path_length": path_length}),
                         "context": context
                     },
                     source="graph",
                     document_id=None,
-                    chunk_id=None
+                    chunk_id=None,
+                    ranking_score=ranking_score
                 )
                 results.append(query_result)
         
-        # Sort results by score (descending)
-        results.sort(key=lambda x: x.score, reverse=True)
+        # Use FusionRanker to properly combine and rank results
+        if request.retrieval_strategy == "hybrid" and results:
+            # Separate vector and graph results
+            vector_results_for_fusion = [
+                {
+                    "id": r.id,
+                    "content": r.content,
+                    "match_score": r.score,
+                    "metadata": r.metadata
+                }
+                for r in results if r.source == "vector"
+            ]
+            
+            graph_results_for_fusion = [
+                {
+                    "id": r.id,
+                    "content": r.content,
+                    "match_score": r.score,
+                    "metadata": r.metadata
+                }
+                for r in results if r.source == "graph"
+            ]
+            
+            # Use FusionRanker to rank results
+            ranked_results = FusionRanker.rank_results(
+                vector_results=vector_results_for_fusion,
+                graph_results=graph_results_for_fusion,
+                vector_weight=vector_weight,
+                strategy="hybrid"
+            )
+            
+            # Convert back to QueryResult format
+            results = []
+            for ranked in ranked_results:
+                query_result = QueryResult(
+                    id=ranked.id,
+                    content=ranked.content,
+                    score=ranked.match_score,  # Keep independent match score
+                    metadata={
+                        **ranked.metadata,
+                        "ranking_score": ranked.ranking_score,
+                        "fusion_source": ranked.source,
+                        "final_rank": ranked.metadata.get("final_rank", 0)
+                    },
+                    source=ranked.source,
+                    document_id=None,
+                    chunk_id=None,
+                    ranking_score=ranked.ranking_score
+                )
+                results.append(query_result)
+        else:
+            # For non-hybrid strategies, sort by ranking score
+            results.sort(key=lambda x: x.ranking_score if x.ranking_score is not None else x.score, reverse=True)
         
         # Context budgeting: Limit results based on token budget
         budget_limited_results = []
@@ -265,31 +317,38 @@ async def query_documents(
         
         # Apply reranking if requested (using fusion config)
         if use_reranker and len(results) > 1:
-            # Enhanced reranking by boosting exact matches and key terms
+            # Enhanced reranking by adjusting ranking scores, NOT match scores
             query_lower = request.query.lower()
             query_words = [word.strip() for word in query_lower.split() if len(word.strip()) > 2]
             
             for result in results:
                 content_lower = result.content.lower()
+                rerank_boost = 1.0
                 
                 # Boost for exact phrase matches
                 if query_lower in content_lower:
-                    result.score *= 1.5
+                    rerank_boost *= 1.5
                 
                 # Boost for word matches (proportional to word count)
                 word_matches = sum(1 for word in query_words if word in content_lower)
                 if word_matches > 0:
                     match_ratio = word_matches / len(query_words)
-                    result.score *= (1.0 + 0.3 * match_ratio)
+                    rerank_boost *= (1.0 + 0.3 * match_ratio)
                 
                 # Boost for exact word matches (case insensitive)
                 exact_word_matches = sum(1 for word in query_words 
                                        if f" {word} " in f" {content_lower} ")
                 if exact_word_matches > 0:
-                    result.score *= (1.0 + 0.2 * exact_word_matches)
+                    rerank_boost *= (1.0 + 0.2 * exact_word_matches)
+                
+                # Apply boost to ranking score ONLY, not match score
+                if result.ranking_score is not None:
+                    result.ranking_score *= rerank_boost
+                else:
+                    result.ranking_score = result.score * rerank_boost
         
-        # Re-sort after reranking
-        results.sort(key=lambda x: x.score, reverse=True)
+        # Re-sort after reranking by ranking score
+        results.sort(key=lambda x: x.ranking_score if x.ranking_score is not None else x.score, reverse=True)
         
         # Default result if no matches found
         if not results:

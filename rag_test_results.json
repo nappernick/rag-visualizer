@@ -1,0 +1,45 @@
+{
+  "total_tests": 5,
+  "passed": 2,
+  "warned": 1,
+  "failed": 2,
+  "score": 0.5,
+  "grade": "F - Critical Issues",
+  "results": [
+    {
+      "name": "Token Counting",
+      "status": "\u2705 PASS",
+      "actual": "312.0 avg",
+      "expected": "256-512",
+      "message": "Average token count: 312.0"
+    },
+    {
+      "name": "Chunk Overlap",
+      "status": "\u26a0\ufe0f WARN",
+      "actual": "2.5%",
+      "expected": "15-30%",
+      "message": "Average overlap: 2.5%"
+    },
+    {
+      "name": "Semantic Boundaries",
+      "status": "\u274c FAIL",
+      "actual": "77.8%",
+      "expected": "95.0%",
+      "message": "Boundary preservation: 77.8%"
+    },
+    {
+      "name": "Retrieval Latency",
+      "status": "\u2705 PASS",
+      "actual": "P50:2ms P95:2ms",
+      "expected": "P95 < 100ms",
+      "message": "Latency - P50: 2ms, P95: 2ms, P99: 2ms"
+    },
+    {
+      "name": "Entity Density",
+      "status": "\u274c FAIL",
+      "actual": "0.0/1k tokens",
+      "expected": "15-30/1k",
+      "message": "Entity density: 0.0 per 1k tokens"
+    }
+  ]
+}

@@ -9,6 +9,19 @@ export interface Document {
   metadata: Record<string, any>;
   created_at: string;
   updated_at: string;
+  performance?: {
+    file_read?: number;
+    content_processing?: number;
+    chunking?: number;
+    chunk_count?: number;
+    entity_extraction?: number;
+    entity_count?: number;
+    relationship_count?: number;
+    entity_storage?: number;
+    document_storage?: number;
+    total_time?: number;
+    content_length?: number;
+  };
 }
 
 export interface Chunk {
@@ -16,13 +29,15 @@ export interface Chunk {
   content: string;
   document_id: string;
   chunk_index: number;
-  chunk_type: 'standard' | 'hierarchical' | 'summary' | 'code' | 'table' | 'section';
+  chunk_type: 'standard' | 'hierarchical' | 'summary' | 'code' | 'table' | 'section' | 'semantic';
   tokens: number;
   embedding?: number[];
   metadata: Record<string, any>;
-  parent_id?: string;
-  children_ids: string[];
-  created_at: string;
+  parent_id?: string | null;
+  children_ids?: string[];
+  level?: number;  // Hierarchy level: 0 = root, 1 = section, 2 = subsection, etc.
+  created_at?: string;
+  position?: number;
 }
 
 export interface Entity {

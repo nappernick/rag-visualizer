@@ -201,7 +201,7 @@ export const FusionControls: React.FC<FusionControlsProps> = ({
       <div className="space-y-4 mb-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Vector vs Graph Weight
+            Ranking Priority <span className="text-xs text-gray-500">(Match % stays independent)</span>
           </label>
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">Vector</span>
@@ -217,10 +217,13 @@ export const FusionControls: React.FC<FusionControlsProps> = ({
             <span className="text-sm text-gray-600">Graph</span>
             <div className="ml-2 px-3 py-1 bg-white rounded-lg border border-gray-300">
               <span className="text-sm font-mono">
-                {config.vector_weight.toFixed(1)} / {config.graph_weight.toFixed(1)}
+                V:{(config.vector_weight * 100).toFixed(0)}% / G:{(config.graph_weight * 100).toFixed(0)}%
               </span>
             </div>
           </div>
+          <p className="text-xs text-gray-500 mt-1 italic">
+            Controls which source gets priority in result ordering
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">

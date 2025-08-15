@@ -1,19 +1,35 @@
 from __future__ import annotations
 
 import os
+import logging
+from pathlib import Path
 from typing import List, Dict
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Configure logging to show all logs
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+# Load environment variables from parent directory if .env exists
+env_path = Path(__file__).parent.parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+    logging.info(f"Loaded .env from {env_path}")
+else:
+    logging.info("No .env file found - using environment variables")
 
 from .db import get_session, init_db
 from .models import IDLinkIn, IDLinkOut, TraverseResponse, IngestDocument
 from .services.id_mapper import IDMapper
-from .api import fusion, documents, chunking, graph, visualization, query, concurrent_processing
+from .api import fusion, documents, chunking, graph, visualization, query, concurrent_processing, demo
 
 
 def get_db():
@@ -45,6 +61,7 @@ app.include_router(graph.router)
 app.include_router(visualization.router)
 app.include_router(query.router)
 app.include_router(concurrent_processing.router)
+app.include_router(demo.router)
 
 
 @app.get("/health")

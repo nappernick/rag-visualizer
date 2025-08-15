@@ -580,42 +580,131 @@ class GraphService:
             return False
     
     async def clear_all(self) -> Dict:
-        """Clear all data from Neo4j"""
+        """Clear all data from Neo4j with batch deletion for large datasets"""
         if not self.initialized:
             return {"status": "error", "message": "Neo4j not initialized"}
         
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Try to reconnect first if needed
+                try:
+                    with self.driver.session() as session:
+                        session.run("RETURN 1")
+                except:
+                    logger.info("Connection lost, attempting to reconnect...")
+                    self._reconnect()
+                
+                # Now proceed with deletion
+                with self.driver.session() as session:
+                    # Count before deletion
+                    result = session.run("MATCH (n) RETURN count(n) as count")
+                    node_count = result.single()["count"]
+                    
+                    result = session.run("MATCH ()-[r]->() RETURN count(r) as count")
+                    rel_count = result.single()["count"]
+                    
+                    logger.info(f"Found {node_count} nodes and {rel_count} relationships to delete")
+                    
+                    if node_count == 0 and rel_count == 0:
+                        return {
+                            "status": "success",
+                            "nodes_deleted": 0,
+                            "relationships_deleted": 0,
+                            "message": "Neo4j already clean"
+                        }
+                    
+                    # First attempt: Simple DETACH DELETE
+                    logger.info("Attempting simple deletion...")
+                    session.run("MATCH (n) DETACH DELETE n")
+                    
+                    # Verify deletion
+                    result = session.run("MATCH (n) RETURN count(n) as count")
+                    remaining = result.single()["count"]
+                    
+                    if remaining == 0:
+                        logger.info(f"Successfully deleted {node_count} nodes and {rel_count} relationships")
+                        return {
+                            "status": "success",
+                            "nodes_deleted": node_count,
+                            "relationships_deleted": rel_count
+                        }
+                    
+                    # If simple deletion failed, try batch deletion
+                    logger.warning(f"{remaining} nodes remain, attempting batch deletion...")
+                    
+                    batch_size = 1000
+                    total_deleted = node_count - remaining
+                    
+                    while True:
+                        result = session.run(f"""
+                            MATCH (n)
+                            WITH n LIMIT {batch_size}
+                            DETACH DELETE n
+                            RETURN count(n) as deleted
+                        """)
+                        deleted = result.single()["deleted"]
+                        if deleted == 0:
+                            break
+                        total_deleted += deleted
+                        logger.info(f"  Deleted batch of {deleted} nodes")
+                    
+                    # Final verification
+                    result = session.run("MATCH (n) RETURN count(n) as count")
+                    final_count = result.single()["count"]
+                    
+                    if final_count == 0:
+                        logger.info(f"Successfully cleared Neo4j after batch deletion")
+                        return {
+                            "status": "success",
+                            "nodes_deleted": node_count,
+                            "relationships_deleted": rel_count
+                        }
+                    else:
+                        logger.error(f"Failed to fully clear Neo4j - {final_count} nodes remain")
+                        return {
+                            "status": "partial",
+                            "nodes_deleted": total_deleted,
+                            "relationships_deleted": rel_count,
+                            "nodes_remaining": final_count
+                        }
+                    
+            except Exception as e:
+                logger.warning(f"Neo4j clear attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries - 1:
+                    logger.error(f"Error clearing Neo4j after {max_retries} attempts: {e}")
+                    return {"status": "error", "message": str(e)}
+                # Wait before retry
+                import asyncio
+                await asyncio.sleep(2)
+    
+    def _reconnect(self):
+        """Reconnect to Neo4j if connection is lost"""
         try:
+            if self.driver:
+                try:
+                    self.driver.close()
+                except:
+                    pass
+            
+            # Re-establish connection
+            self.driver = GraphDatabase.driver(
+                self.uri,
+                auth=(self.username, self.password),
+                max_connection_lifetime=3600,  # 1 hour
+                max_connection_pool_size=50,
+                connection_acquisition_timeout=60
+            )
+            
+            # Test connection
             with self.driver.session() as session:
-                # Count before deletion
-                result = session.run("""
-                    MATCH (n)
-                    RETURN count(n) as node_count
-                """)
-                node_count = result.single()["node_count"]
-                
-                result = session.run("""
-                    MATCH ()-[r]->()
-                    RETURN count(r) as rel_count
-                """)
-                rel_count = result.single()["rel_count"]
-                
-                # Delete everything
-                session.run("""
-                    MATCH (n)
-                    DETACH DELETE n
-                """)
-                
-                logger.info(f"Cleared {node_count} nodes and {rel_count} relationships from Neo4j")
-                
-                return {
-                    "status": "success",
-                    "nodes_deleted": node_count,
-                    "relationships_deleted": rel_count
-                }
-                
+                session.run("RETURN 1")
+            
+            logger.info("Successfully reconnected to Neo4j")
+            
         except Exception as e:
-            logger.error(f"Error clearing Neo4j: {e}")
-            return {"status": "error", "message": str(e)}
+            logger.error(f"Failed to reconnect to Neo4j: {e}")
+            raise
     
     def close(self):
         """Close Neo4j connection"""

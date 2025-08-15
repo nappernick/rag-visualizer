@@ -3,10 +3,11 @@ import './App.css';
 import { ChunkVisualizer } from './components/ChunkVisualizer/ChunkVisualizer';
 import { GraphViewer } from './components/GraphViewer/GraphViewer';
 import { FusionControls } from './components/FusionControls/FusionControls';
+import { DemoTab } from './components/Demo/DemoTab';
 import { documentApi, chunkingApi, graphApi, queryApi } from './services/api';
 import type { Document, Chunk, Entity, Relationship, ChunkingRequest } from './types';
 
-type TabType = 'upload' | 'chunks' | 'graph' | 'query' | 'stats';
+type TabType = 'upload' | 'chunks' | 'graph' | 'query' | 'stats' | 'demo';
 
 function App() {
   // State
@@ -27,6 +28,7 @@ function App() {
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<any[]>([]);
   const [processingStatus, setProcessingStatus] = useState<string>('');
+  const [performanceMetrics, setPerformanceMetrics] = useState<any>(null);
   const [fusionConfig, setFusionConfig] = useState<any>(null);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
@@ -89,7 +91,7 @@ function App() {
     }
   };
 
-  // File upload handler (supports multiple files)
+  // File upload handler with performance tracking
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -97,95 +99,90 @@ function App() {
     try {
       setLoading(true);
       setError(null);
+      setPerformanceMetrics(null);
       
       const totalFiles = files.length;
       const newDocuments: Document[] = [];
       
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        setProcessingStatus(`Uploading ${i + 1}/${totalFiles}: ${file.name}`);
+        const fileNum = `${i + 1}/${totalFiles}`;
         
-        const document = await documentApi.upload(file);
-        newDocuments.push(document);
-        setDocuments(prev => [...prev, document]);
+        // Stage 1: Reading file
+        setProcessingStatus(`📂 Reading file ${fileNum}: ${file.name}`);
+        
+        // Stage 2: Processing (includes upload, chunking, extraction)
+        setProcessingStatus(`⚙️ Processing ${fileNum}: ${file.name}`);
+        const uploadResponse = await documentApi.upload(file);
+        
+        // Extract performance metrics if available
+        if (uploadResponse.performance) {
+          setPerformanceMetrics(uploadResponse.performance);
+          
+          // Update status based on current stage from server
+          if (uploadResponse.performance.chunking) {
+            setProcessingStatus(`✂️ Chunking ${fileNum}: ${file.name} (${uploadResponse.performance.chunk_count} chunks)`);
+          }
+          if (uploadResponse.performance.entity_extraction) {
+            setProcessingStatus(`🔍 Extracting entities ${fileNum}: ${file.name} (${uploadResponse.performance.entity_count} entities)`);
+          }
+        }
+        
+        newDocuments.push(uploadResponse);
+        setDocuments(prev => [...prev, uploadResponse]);
         
         // Select the first uploaded document
         if (i === 0) {
-          setSelectedDocument(document);
+          setSelectedDocument(uploadResponse);
+          
+          // Load chunks and entities for the first document
+          try {
+            const [docChunks, docEntities, docRelationships] = await Promise.all([
+              chunkingApi.getChunks(uploadResponse.id).catch(() => []),
+              graphApi.getEntities(uploadResponse.id).catch(() => []),
+              graphApi.getRelationships(uploadResponse.id).catch(() => [])
+            ]);
+            setChunks(Array.isArray(docChunks) ? docChunks : []);
+            setEntities(Array.isArray(docEntities) ? docEntities : []);
+            setRelationships(Array.isArray(docRelationships) ? docRelationships : []);
+          } catch (e) {
+            console.error('Error loading document data:', e);
+          }
         }
         
-        // Process the document
-        setProcessingStatus(`Chunking ${i + 1}/${totalFiles}: ${file.name}`);
-        const chunkingRequest: ChunkingRequest = {
-          document_id: document.id,
-          content: document.content,
-          strategy: 'hierarchical',
-          max_chunk_size: 800,
-          chunk_overlap: 100
-        };
-        
-        const chunkingResponse = await chunkingApi.chunkDocument(chunkingRequest);
-        
-        // Update chunks for the first document
-        if (i === 0) {
-          setChunks(Array.isArray(chunkingResponse.chunks) ? chunkingResponse.chunks : []);
-        }
-        
-        // Update all chunks collection
-        setAllChunks(prev => ({
-          ...prev,
-          [document.id]: Array.isArray(chunkingResponse.chunks) ? chunkingResponse.chunks : []
-        }));
-        
-        // Extract graph
-        setProcessingStatus(`Building graph ${i + 1}/${totalFiles}: ${file.name}`);
-        const graphData = await graphApi.extractGraph(document.id, chunkingResponse.chunks);
-        
-        // Update entities/relationships for the first document
-        if (i === 0) {
-          setEntities(graphData.entities);
-          setRelationships(graphData.relationships);
-        }
-        
-        // Update all entities and relationships
-        setAllEntities(prev => ({
-          ...prev,
-          [document.id]: graphData.entities
-        }));
-        setAllRelationships(prev => ({
-          ...prev,
-          [document.id]: graphData.relationships
-        }));
-        
-        // Store data
-        setProcessingStatus(`Storing ${i + 1}/${totalFiles}: ${file.name}`);
-        
-        // Update document status to completed
-        const updatedDoc = { ...document, status: 'completed' as const };
-        setDocuments(prev => prev.map(d => d.id === document.id ? updatedDoc : d));
+        // Update status to completed
+        const updatedDoc = { ...uploadResponse, status: 'completed' as const };
+        setDocuments(prev => prev.map(d => d.id === uploadResponse.id ? updatedDoc : d));
         
         if (i === 0) {
           setSelectedDocument(updatedDoc);
         }
       }
       
-      setProcessingStatus(`Successfully processed ${totalFiles} document${totalFiles > 1 ? 's' : ''}!`);
+      // Show performance summary if available
+      if (performanceMetrics) {
+        const perf = performanceMetrics;
+        setProcessingStatus(
+          `✅ Processed in ${perf.total_time}s | ` +
+          `Chunks: ${perf.chunk_count || 0} | ` +
+          `Entities: ${perf.entity_count || 0} | ` +
+          `Relationships: ${perf.relationship_count || 0}`
+        );
+      } else {
+        setProcessingStatus(`✅ Successfully processed ${totalFiles} document${totalFiles > 1 ? 's' : ''}!`);
+      }
       
       // Clear loading state immediately after processing
       setLoading(false);
-      setTimeout(() => setProcessingStatus(''), 3000);
+      setTimeout(() => {
+        setProcessingStatus('');
+        setPerformanceMetrics(null);
+      }, 5000);
       
     } catch (err: any) {
       const errorMessage = err?.response?.data?.detail || err?.message || 'Failed to process document';
       setError(errorMessage);
       console.error('Document processing error:', err);
-      
-      // Update document status to failed
-      if (document) {
-        const updatedDoc = { ...document, status: 'failed' as const };
-        setDocuments(prev => prev.map(d => d.id === document.id ? updatedDoc : d));
-        setSelectedDocument(updatedDoc);
-      }
       setLoading(false);
     }
   };
@@ -229,24 +226,50 @@ function App() {
   const handleSelectDocument = async (doc: Document) => {
     try {
       setLoading(true);
+      setError(null);
       setSelectedDocument(doc);
       
-      // Load chunks
-      const docChunks = await chunkingApi.getChunks(doc.id);
+      // Clear previous data first to avoid showing stale data
+      setChunks([]);
+      setEntities([]);
+      setRelationships([]);
+      
+      // Load chunks with proper error handling
+      const docChunks = await chunkingApi.getChunks(doc.id).catch((err) => {
+        console.error('Error loading chunks:', err);
+        return [];
+      });
       setChunks(Array.isArray(docChunks) ? docChunks : []);
       
-      // Load entities and relationships
+      // Load entities and relationships with individual error handling
       const [docEntities, docRelationships] = await Promise.all([
-        graphApi.getEntities(doc.id).catch(() => []),
-        graphApi.getRelationships(doc.id).catch(() => [])
+        graphApi.getEntities(doc.id).catch((err) => {
+          console.error('Error loading entities:', err);
+          return [];
+        }),
+        graphApi.getRelationships(doc.id).catch((err) => {
+          console.error('Error loading relationships:', err);
+          return [];
+        })
       ]);
       
-      setEntities(docEntities);
-      setRelationships(docRelationships);
+      setEntities(Array.isArray(docEntities) ? docEntities : []);
+      setRelationships(Array.isArray(docRelationships) ? docRelationships : []);
+      
+      // Log what was loaded for debugging
+      console.log(`Loaded for document ${doc.id}:`, {
+        chunks: docChunks?.length || 0,
+        entities: docEntities?.length || 0,
+        relationships: docRelationships?.length || 0
+      });
       
     } catch (err) {
+      console.error('Error loading document data:', err);
       setError('Failed to load document data');
-      console.error(err);
+      // Still set empty arrays to avoid undefined errors
+      setChunks([]);
+      setEntities([]);
+      setRelationships([]);
     } finally {
       setLoading(false);
     }
@@ -421,6 +444,18 @@ function App() {
             >
               Stats
             </button>
+            <button
+              onClick={() => setActiveTab('demo')}
+              className={`
+                flex-1 py-3 px-4 rounded-lg font-medium text-sm transition-all duration-200
+                ${activeTab === 'demo'
+                  ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-lg transform scale-105'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }
+              `}
+            >
+              🚀 Demo
+            </button>
           </nav>
         </div>
       </div>
@@ -442,13 +477,43 @@ function App() {
           </div>
         )}
 
-        {/* Processing Status */}
+        {/* Processing Status with Performance Metrics */}
         {processingStatus && (
           <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 rounded-lg shadow-md animate-slideIn">
-            <div className="flex items-center">
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent mr-3"></div>
-              <span className="text-blue-800 font-medium">{processingStatus}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                {!processingStatus.startsWith('✅') && (
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent mr-3"></div>
+                )}
+                <span className="text-blue-800 font-medium">{processingStatus}</span>
+              </div>
+              {performanceMetrics && (
+                <div className="text-xs text-gray-600">
+                  {performanceMetrics.total_time && (
+                    <span className="ml-4">Total: {performanceMetrics.total_time}s</span>
+                  )}
+                </div>
+              )}
             </div>
+            {performanceMetrics && !processingStatus.startsWith('✅') && (
+              <div className="mt-3 flex gap-4 text-xs text-gray-600">
+                {performanceMetrics.file_read && (
+                  <span>📂 Read: {performanceMetrics.file_read}s</span>
+                )}
+                {performanceMetrics.content_processing && (
+                  <span>⚙️ Process: {performanceMetrics.content_processing}s</span>
+                )}
+                {performanceMetrics.chunking && (
+                  <span>✂️ Chunk: {performanceMetrics.chunking}s</span>
+                )}
+                {performanceMetrics.entity_extraction && (
+                  <span>🔍 Extract: {performanceMetrics.entity_extraction}s</span>
+                )}
+                {performanceMetrics.document_storage && (
+                  <span>💾 Store: {performanceMetrics.document_storage}s</span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -480,12 +545,14 @@ function App() {
                     htmlFor="file-upload"
                     className={`cursor-pointer flex items-center justify-center px-6 py-3 rounded-lg shadow-md transition-all duration-200 transform hover:scale-105 ${
                       loading ? 'bg-gradient-to-r from-gray-400 to-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'
-                    } text-white`}
+                    } text-white min-w-[200px]`}
                   >
                     {loading && (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                     )}
-                    {loading ? (processingStatus || 'Processing...') : 'Choose Files'}
+                    <span className="truncate">
+                      {loading ? (processingStatus ? processingStatus.substring(0, 50) : 'Processing...') : 'Choose Files'}
+                    </span>
                   </label>
                 </label>
                 <span className="text-gray-500">or</span>
@@ -678,7 +745,18 @@ function App() {
                       Selected Chunk Content
                     </h3>
                     <pre className="text-sm whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
-                      {chunks.find(c => c.id === selectedChunkId)?.content}
+                      {(() => {
+                        // In single document mode, search in chunks
+                        if (viewMode === 'single') {
+                          return chunks.find(c => c.id === selectedChunkId)?.content;
+                        }
+                        // In all documents mode, search across all chunks
+                        for (const docChunks of Object.values(allChunks)) {
+                          const chunk = (docChunks as Chunk[]).find((c: Chunk) => c.id === selectedChunkId);
+                          if (chunk) return chunk.content;
+                        }
+                        return 'Chunk not found';
+                      })()}
                     </pre>
                   </div>
                 )}
@@ -887,7 +965,7 @@ function App() {
                               <span className="text-lg font-bold text-orange-600">{idx + 1}.</span>
                               <div className="px-2 py-1 bg-gradient-to-r from-green-100 to-emerald-100 rounded-full">
                                 <span className="text-xs font-semibold text-green-800">
-                                  {(result.score * 100).toFixed(1)}% Match
+                                  {result.score.toFixed(1)}% Match
                                 </span>
                               </div>
                             </div>
@@ -928,6 +1006,17 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'demo' && (
+          <DemoTab
+            documents={documents}
+            chunks={chunks}
+            entities={entities}
+            relationships={relationships}
+            loading={loading}
+            onDocumentSelect={handleSelectDocument}
+          />
+        )}
+
         {activeTab === 'stats' && (
           <div className="bg-white rounded-xl shadow-xl p-8 animate-fadeIn">
             <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
@@ -962,36 +1051,190 @@ function App() {
             </div>
 
             {selectedDocument && (
-              <div className="p-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200">
-                <h3 className="font-semibold text-lg mb-4 flex items-center">
-                  Selected Document Analytics
-                </h3>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
-                      <span className="text-gray-600 font-medium">Title</span>
-                      <span className="font-semibold text-gray-800">{selectedDocument.title}</span>
+              <>
+                <div className="p-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200 mb-6">
+                  <h3 className="font-semibold text-lg mb-4 flex items-center">
+                    Selected Document Analytics
+                  </h3>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                        <span className="text-gray-600 font-medium">Title</span>
+                        <span className="font-semibold text-gray-800">{selectedDocument.title}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                        <span className="text-gray-600 font-medium">Chunks</span>
+                        <span className="font-bold text-green-600 text-lg">{chunks.length}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
-                      <span className="text-gray-600 font-medium">Chunks</span>
-                      <span className="font-bold text-green-600 text-lg">{chunks.length}</span>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
-                      <span className="text-gray-600 font-medium">Entities</span>
-                      <span className="font-bold text-purple-600 text-lg">{entities.length}</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
-                      <span className="text-gray-600 font-medium">Relationships</span>
-                      <span className="font-bold text-pink-600 text-lg">{relationships.length}</span>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                        <span className="text-gray-600 font-medium">Entities</span>
+                        <span className="font-bold text-purple-600 text-lg">{entities.length}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                        <span className="text-gray-600 font-medium">Relationships</span>
+                        <span className="font-bold text-pink-600 text-lg">{relationships.length}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+
+                {/* Performance Metrics Section */}
+                {selectedDocument.performance && (
+                  <div className="p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-200">
+                    <h3 className="font-semibold text-lg mb-4 flex items-center">
+                      🚀 Performance Metrics - {selectedDocument.title}
+                    </h3>
+                    
+                    {/* Processing Times */}
+                    <div className="mb-6">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Processing Times</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="p-3 bg-white rounded-lg border border-orange-100">
+                          <div className="text-xs text-gray-500">📂 File Read</div>
+                          <div className="text-lg font-bold text-orange-600">
+                            {selectedDocument.performance.file_read || 0}s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-orange-100">
+                          <div className="text-xs text-gray-500">✂️ Chunking</div>
+                          <div className="text-lg font-bold text-orange-600">
+                            {selectedDocument.performance.chunking || 0}s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-orange-100">
+                          <div className="text-xs text-gray-500">🔍 Entity Extraction</div>
+                          <div className="text-lg font-bold text-orange-600">
+                            {selectedDocument.performance.entity_extraction || 0}s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-orange-100">
+                          <div className="text-xs text-gray-500">💾 Storage</div>
+                          <div className="text-lg font-bold text-orange-600">
+                            {selectedDocument.performance.document_storage || 0}s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-orange-100">
+                          <div className="text-xs text-gray-500">⏱️ Total Time</div>
+                          <div className="text-lg font-bold text-green-600">
+                            {selectedDocument.performance.total_time || 0}s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-orange-100">
+                          <div className="text-xs text-gray-500">📄 Content Size</div>
+                          <div className="text-lg font-bold text-blue-600">
+                            {((selectedDocument.performance.content_length || 0) / 1000).toFixed(1)}k
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Efficiency Metrics */}
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Efficiency Metrics</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+                          <div className="text-xs text-gray-500">Processing Speed</div>
+                          <div className="text-lg font-bold text-blue-600">
+                            {selectedDocument.performance.content_length && selectedDocument.performance.total_time
+                              ? ((selectedDocument.performance.content_length / selectedDocument.performance.total_time) / 1000).toFixed(1)
+                              : 0} k chars/s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
+                          <div className="text-xs text-gray-500">Chunks per Second</div>
+                          <div className="text-lg font-bold text-green-600">
+                            {selectedDocument.performance.chunk_count && selectedDocument.performance.chunking
+                              ? (selectedDocument.performance.chunk_count / selectedDocument.performance.chunking).toFixed(1)
+                              : 0} chunks/s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+                          <div className="text-xs text-gray-500">Entities per Second</div>
+                          <div className="text-lg font-bold text-purple-600">
+                            {selectedDocument.performance.entity_count && selectedDocument.performance.entity_extraction
+                              ? (selectedDocument.performance.entity_count / selectedDocument.performance.entity_extraction).toFixed(1)
+                              : 0} entities/s
+                          </div>
+                        </div>
+                        <div className="p-3 bg-gradient-to-r from-yellow-50 to-amber-50 rounded-lg">
+                          <div className="text-xs text-gray-500">Entity Density</div>
+                          <div className="text-lg font-bold text-yellow-600">
+                            {selectedDocument.performance.entity_count && selectedDocument.performance.content_length
+                              ? ((selectedDocument.performance.entity_count / selectedDocument.performance.content_length) * 1000).toFixed(2)
+                              : 0} per 1k chars
+                          </div>
+                        </div>
+                        <div className="p-3 bg-gradient-to-r from-red-50 to-pink-50 rounded-lg">
+                          <div className="text-xs text-gray-500">Extraction Overhead</div>
+                          <div className="text-lg font-bold text-red-600">
+                            {selectedDocument.performance.entity_extraction && selectedDocument.performance.total_time
+                              ? ((selectedDocument.performance.entity_extraction / selectedDocument.performance.total_time) * 100).toFixed(0)
+                              : 0}%
+                          </div>
+                        </div>
+                        <div className="p-3 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg">
+                          <div className="text-xs text-gray-500">Avg Chunk Size</div>
+                          <div className="text-lg font-bold text-cyan-600">
+                            {selectedDocument.performance.content_length && selectedDocument.performance.chunk_count
+                              ? (selectedDocument.performance.content_length / selectedDocument.performance.chunk_count).toFixed(0)
+                              : 0} chars
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Corpus-wide Average Metrics */}
+                {(() => {
+                  const docsWithPerf = documents.filter(d => d.performance);
+                  if (docsWithPerf.length > 0) {
+                    const avgTotalTime = docsWithPerf.reduce((sum, d) => sum + (d.performance?.total_time || 0), 0) / docsWithPerf.length;
+                    const avgChunkTime = docsWithPerf.reduce((sum, d) => sum + (d.performance?.chunking || 0), 0) / docsWithPerf.length;
+                    const avgExtractTime = docsWithPerf.reduce((sum, d) => sum + (d.performance?.entity_extraction || 0), 0) / docsWithPerf.length;
+                    const totalChars = docsWithPerf.reduce((sum, d) => sum + (d.performance?.content_length || 0), 0);
+                    const totalEntities = docsWithPerf.reduce((sum, d) => sum + (d.performance?.entity_count || 0), 0);
+                    const avgSpeed = totalChars / docsWithPerf.reduce((sum, d) => sum + (d.performance?.total_time || 0), 0) / 1000;
+                    
+                    return (
+                      <div className="mt-6 p-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200">
+                        <h3 className="font-semibold text-lg mb-4 flex items-center">
+                          📊 Corpus-wide Performance Averages ({docsWithPerf.length} documents)
+                        </h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="p-3 bg-white rounded-lg">
+                            <div className="text-xs text-gray-500">Avg Processing Time</div>
+                            <div className="text-lg font-bold text-gray-700">{avgTotalTime.toFixed(2)}s</div>
+                          </div>
+                          <div className="p-3 bg-white rounded-lg">
+                            <div className="text-xs text-gray-500">Avg Speed</div>
+                            <div className="text-lg font-bold text-blue-600">{avgSpeed.toFixed(1)} k chars/s</div>
+                          </div>
+                          <div className="p-3 bg-white rounded-lg">
+                            <div className="text-xs text-gray-500">Avg Entity Density</div>
+                            <div className="text-lg font-bold text-purple-600">
+                              {((totalEntities / totalChars) * 1000).toFixed(2)} per 1k
+                            </div>
+                          </div>
+                          <div className="p-3 bg-white rounded-lg">
+                            <div className="text-xs text-gray-500">Extraction %</div>
+                            <div className="text-lg font-bold text-orange-600">
+                              {((avgExtractTime / avgTotalTime) * 100).toFixed(0)}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </>
             )}
           </div>
         )}
+
       </main>
 
       {/* Loading Overlay - Removed to keep UI responsive */}

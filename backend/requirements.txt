@@ -16,6 +16,7 @@ redis==5.0.1
 supabase==2.10.0
 
 # NLP & Embeddings
+anthropic>=0.64.0
 spacy==3.7.2
 tiktoken==0.5.1
 sentence-transformers==5.1.0

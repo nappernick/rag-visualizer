@@ -138,34 +138,90 @@ class GraphRetriever:
     
     def _extract_query_entities(self, query: str) -> List[str]:
         """
-        Extract entities from query text
-        In production, use NER or entity linking
+        Extract entities from query text using enhanced matching
         """
-        # Simplified: look for capitalized words and known entity patterns
         entities = []
-        words = query.split()
+        query_lower = query.lower()
         
-        for word in words:
-            # Simple heuristic: capitalized words might be entities
-            if word[0].isupper() and len(word) > 2:
-                entities.append(word.lower())
+        # Extract capitalized words (likely proper nouns)
+        import re
+        proper_nouns = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', query)
+        entities.extend(proper_nouns)
         
-        return entities
+        # Extract technical terms and acronyms
+        tech_terms = re.findall(r'\b(?:[A-Z]{2,}|[a-z]+(?:[A-Z][a-z]+)+)\b', query)
+        entities.extend(tech_terms)
+        
+        # Extract quoted phrases
+        quoted = re.findall(r'"([^"]+)"', query)
+        entities.extend(quoted)
+        
+        # Common technical keywords to look for
+        tech_keywords = ['cache', 'memory', 'database', 'api', 'model', 'algorithm', 
+                        'neural', 'network', 'machine learning', 'deep learning',
+                        'vector', 'embedding', 'search', 'retrieval', 'graph']
+        
+        for keyword in tech_keywords:
+            if keyword in query_lower:
+                entities.append(keyword)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_entities = []
+        for entity in entities:
+            entity_lower = entity.lower()
+            if entity_lower not in seen:
+                seen.add(entity_lower)
+                unique_entities.append(entity)
+        
+        return unique_entities
     
     def _find_seed_nodes(self, query_entities: List[str]) -> List[str]:
         """
-        Find entity/node IDs matching query entities
+        Find entity/node IDs matching query entities from Neo4j
         """
         seed_nodes = []
         
-        # In production, query Neo4j or entity index
-        # For now, return simplified entity IDs
-        with get_session() as session:
-            # This would query the actual entity storage
-            # Simplified version:
-            for entity_name in query_entities:
-                # Would normally search for entities by name
-                seed_nodes.append(f"entity_{entity_name}")
+        if not self.driver:
+            # Fallback to simple entity IDs if Neo4j not available
+            return [f"entity_{e}" for e in query_entities]
+        
+        try:
+            with self.driver.session() as session:
+                for entity_name in query_entities:
+                    # Search for entities by name (case-insensitive)
+                    query = """
+                    MATCH (e:Entity)
+                    WHERE toLower(e.name) CONTAINS toLower($name)
+                       OR toLower(e.entity_type) = toLower($name)
+                    RETURN e.id as entity_id
+                    LIMIT 10
+                    """
+                    
+                    result = session.run(query, name=entity_name)
+                    
+                    for record in result:
+                        if record["entity_id"] not in seed_nodes:
+                            seed_nodes.append(record["entity_id"])
+                    
+                    # Also try exact match
+                    exact_query = """
+                    MATCH (e:Entity)
+                    WHERE toLower(e.name) = toLower($name)
+                    RETURN e.id as entity_id
+                    LIMIT 5
+                    """
+                    
+                    exact_result = session.run(exact_query, name=entity_name)
+                    
+                    for record in exact_result:
+                        if record["entity_id"] not in seed_nodes:
+                            seed_nodes.insert(0, record["entity_id"])  # Prioritize exact matches
+                            
+        except Exception as e:
+            logger.warning(f"Error finding seed nodes: {e}")
+            # Fallback to simple entity IDs
+            return [f"entity_{e}" for e in query_entities]
         
         return seed_nodes
     
