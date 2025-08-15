@@ -111,9 +111,14 @@ class Entity(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     entity_type: str
+    description: Optional[str] = None  # Entity description for context
     document_ids: List[str] = Field(default_factory=list)
     chunk_ids: List[str] = Field(default_factory=list)
     frequency: int = 1
+    salience: float = 0.0  # Importance score (0-1)
+    embedding: Optional[List[float]] = None  # Entity embedding for similarity
+    attributes: Dict[str, Any] = Field(default_factory=dict)  # Structured attributes
+    context_snippets: List[str] = Field(default_factory=list)  # Example contexts
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -122,8 +127,14 @@ class Relationship(BaseModel):
     source_entity_id: str
     target_entity_id: str
     relationship_type: str
-    weight: float = 1.0
+    description: Optional[str] = None  # Relationship description
+    weight: float = 1.0  # Strength of relationship
+    confidence: float = 1.0  # Extraction confidence (0-1)
+    bidirectional: bool = False  # If relationship goes both ways
+    temporal: Optional[str] = None  # Time context if applicable
     document_ids: List[str] = Field(default_factory=list)
+    chunk_ids: List[str] = Field(default_factory=list)  # Which chunks mention this
+    evidence: List[str] = Field(default_factory=list)  # Text evidence for relationship
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

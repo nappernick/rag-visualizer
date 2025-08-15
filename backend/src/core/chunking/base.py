@@ -17,11 +17,22 @@ from ...models.schemas import Document, Chunk, ChunkType
 class BaseChunker(ABC):
     """Abstract base class for all chunking strategies"""
     
-    def __init__(self, max_chunk_size: int = 800, chunk_overlap: int = 100):
+    def __init__(self, max_chunk_size: int = 400, chunk_overlap: int = 80):
+        """Initialize chunker with industry-standard defaults.
+        
+        Args:
+            max_chunk_size: Maximum tokens per chunk (default 400, industry standard)
+            chunk_overlap: Token overlap between chunks (default 80, which is 20%)
+        """
         self.max_chunk_size = max_chunk_size
         self.chunk_overlap = chunk_overlap
         if TIKTOKEN_AVAILABLE:
-            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+            try:
+                self.tokenizer = tiktoken.get_encoding("cl100k_base")
+                print(f"✅ Tiktoken initialized successfully")
+            except Exception as e:
+                print(f"⚠️ Tiktoken initialization failed: {e}")
+                self.tokenizer = None
         else:
             self.tokenizer = None
     

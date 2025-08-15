@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import type { Chunk } from '../../types';
+import { HierarchyTree } from './HierarchyTree';
 
 interface ChunkVisualizerProps {
   chunks: Chunk[];
@@ -15,39 +16,42 @@ export const ChunkVisualizer: React.FC<ChunkVisualizerProps> = ({
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewMode, setViewMode] = useState<'hierarchy' | 'linear' | 'grid'>('hierarchy');
+  
+  // Check if chunks have hierarchical structure
+  const hasHierarchy = chunks.some(c => c.parent_id || (c.children_ids && c.children_ids.length > 0));
 
   useEffect(() => {
+    // Skip D3 rendering for hierarchy view since we use the tree component
+    if (viewMode === 'hierarchy') return;
+    
     if (!svgRef.current || !Array.isArray(chunks) || chunks.length === 0) return;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
     const width = 1200;
-    const height = viewMode === 'hierarchy' ? Math.max(600, chunks.length * 30) : 600;
+    const height = 600;
     const margin = { top: 40, right: 40, bottom: 40, left: 40 };
 
     svg.attr('viewBox', `0 0 ${width} ${height}`);
 
-    if (viewMode === 'hierarchy') {
-      renderHierarchy(svg, chunks, width, height, margin);
-    } else if (viewMode === 'linear') {
+    if (viewMode === 'linear') {
       renderLinear(svg, chunks, width, height, margin);
     } else {
       renderGrid(svg, chunks, width, height, margin);
     }
   }, [chunks, viewMode, selectedChunkId]);
 
-  const renderHierarchy = (
+  // Remove the old renderHierarchy function since we'll use HierarchyTree component
+  const renderHierarchyOld = (
     svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
     chunks: Chunk[],
     width: number,
     height: number,
     margin: { top: number; right: number; bottom: number; left: number }
   ) => {
-    // Build hierarchy data
+    // Old hierarchy rendering code - kept for reference
     const root = buildHierarchyData(chunks);
-    console.log('Hierarchy root:', root);
-    console.log('Number of chunks:', chunks.length);
     console.log('Root children:', root.children.length);
     
     const treeLayout = d3.tree()
@@ -318,28 +322,46 @@ export const ChunkVisualizer: React.FC<ChunkVisualizerProps> = ({
   };
 
   return (
-    <div className="chunk-visualizer">
-      <div className="controls mb-4">
-        <button
-          className={`px-3 py-1 mr-2 rounded ${viewMode === 'hierarchy' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-          onClick={() => setViewMode('hierarchy')}
-        >
-          Hierarchy
-        </button>
-        <button
-          className={`px-3 py-1 mr-2 rounded ${viewMode === 'linear' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-          onClick={() => setViewMode('linear')}
-        >
-          Linear
-        </button>
-        <button
-          className={`px-3 py-1 rounded ${viewMode === 'grid' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-          onClick={() => setViewMode('grid')}
-        >
-          Grid
-        </button>
+    <div className="chunk-visualizer h-full flex flex-col">
+      <div className="controls mb-4 flex items-center justify-between">
+        <div>
+          <button
+            className={`px-3 py-1 mr-2 rounded ${viewMode === 'hierarchy' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => setViewMode('hierarchy')}
+          >
+            🌳 Hierarchy
+          </button>
+          <button
+            className={`px-3 py-1 mr-2 rounded ${viewMode === 'linear' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => setViewMode('linear')}
+          >
+            📊 Linear
+          </button>
+          <button
+            className={`px-3 py-1 rounded ${viewMode === 'grid' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => setViewMode('grid')}
+          >
+            ⚡ Grid
+          </button>
+        </div>
+        {hasHierarchy && viewMode === 'hierarchy' && (
+          <span className="text-sm text-green-600 bg-green-100 px-3 py-1 rounded">
+            ✅ Hierarchical structure detected
+          </span>
+        )}
       </div>
-      <svg ref={svgRef} className="w-full h-full border border-gray-300 rounded"></svg>
+      
+      {viewMode === 'hierarchy' ? (
+        <div className="flex-1 min-h-0">
+          <HierarchyTree
+            chunks={chunks}
+            selectedChunkId={selectedChunkId}
+            onChunkSelect={onChunkSelect || (() => {})}
+          />
+        </div>
+      ) : (
+        <svg ref={svgRef} className="w-full h-full border border-gray-300 rounded"></svg>
+      )}
     </div>
   );
 };

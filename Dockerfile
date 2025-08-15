@@ -1,0 +1,31 @@
+# Minimal Dockerfile for production - optimized for Railway
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install only essential runtime dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy production requirements
+COPY backend/requirements-prod.txt ./requirements.txt
+
+# Install dependencies with no cache
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend source code
+COPY backend/ ./backend/
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV EMBEDDING_MODEL=openai
+ENV USE_CLAUDE_EXTRACTION=true
+
+# Expose port
+EXPOSE 8000
+
+# Start the FastAPI application
+CMD uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8000}

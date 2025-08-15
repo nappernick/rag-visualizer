@@ -32,6 +32,7 @@ class StorageService:
                 self.client = None
                 self.initialized = False
         else:
+            logger.warning(f"Supabase credentials missing - URL: {bool(supabase_url)}, Key: {bool(supabase_key)}")
             logger.info("Supabase credentials not configured, storage will not persist")
     
     async def store_document(self, document: Dict) -> Dict:

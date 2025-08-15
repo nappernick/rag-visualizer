@@ -1,14 +1,12 @@
 """
-Entity extraction service using SpaCy and Claude
+Entity extraction service using Claude AI
 """
 import os
 from typing import List, Dict, Optional, Tuple
 import logging
-import spacy
-from collections import Counter
 import hashlib
 
-# Try to import Claude extractor
+# Import Claude extractor
 try:
     from ..core.graph.claude_extractor import ClaudeGraphExtractor
     CLAUDE_AVAILABLE = True
@@ -20,24 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 class EntityService:
-    """Service for extracting entities from text using SpaCy and Claude"""
+    """Service for extracting entities from text using Claude AI"""
     
     def __init__(self):
-        model_name = os.getenv("SPACY_MODEL", "en_core_web_sm")
-        
-        # Initialize SpaCy
-        try:
-            self.nlp = spacy.load(model_name)
-            self.spacy_initialized = True
-            logger.info(f"SpaCy model loaded: {model_name}")
-        except OSError:
-            logger.warning(f"SpaCy model '{model_name}' not found")
-            self.nlp = None
-            self.spacy_initialized = False
-        
-        # Initialize Claude extractor if available (default to True)
-        self.use_claude = os.getenv("USE_CLAUDE_EXTRACTION", "true").lower() == "true"
-        if self.use_claude and CLAUDE_AVAILABLE:
+        # Initialize Claude extractor
+        if CLAUDE_AVAILABLE:
             try:
                 self.claude_extractor = ClaudeGraphExtractor()
                 self.claude_initialized = True
@@ -47,32 +32,27 @@ class EntityService:
                 self.claude_extractor = None
                 self.claude_initialized = False
         else:
+            logger.error("Claude extractor not available - entity extraction will not work")
             self.claude_extractor = None
             self.claude_initialized = False
         
-        self.initialized = self.spacy_initialized or self.claude_initialized
+        self.initialized = self.claude_initialized
     
     async def extract_entities(
         self, 
         text: str, 
         document_id: str,
         chunk_ids: Optional[List[str]] = None,
-        use_claude: Optional[bool] = None
+        use_claude: Optional[bool] = None  # Keep for compatibility
     ) -> Tuple[List[Dict], List[Dict]]:
-        """Extract entities and relationships from text
+        """Extract entities and relationships from text using Claude AI
         Returns: (entities, relationships)"""
         
-        # Allow override of Claude usage
-        should_use_claude = use_claude if use_claude is not None else (self.use_claude and self.claude_initialized)
+        if not self.claude_initialized or not self.claude_extractor:
+            logger.error("Claude extractor not initialized")
+            return [], []
         
-        if should_use_claude and self.claude_extractor:
-            return await self._extract_with_claude(text, document_id, chunk_ids)
-        elif self.spacy_initialized and self.nlp:
-            entities = await self._extract_with_spacy(text, document_id, chunk_ids)
-            return entities, []  # SpaCy doesn't extract relationships
-        else:
-            entities = await self._extract_fallback(text, document_id, chunk_ids)
-            return entities, []  # Fallback doesn't extract relationships
+        return await self._extract_with_claude(text, document_id, chunk_ids)
     
     async def _extract_with_claude(
         self, 
@@ -133,133 +113,8 @@ class EntityService:
             
         except Exception as e:
             logger.error(f"Error extracting entities with Claude: {e}")
-            # Fallback to SpaCy or simple extraction
-            if self.spacy_initialized:
-                entities = await self._extract_with_spacy(text, document_id, chunk_ids)
-                return entities, []  # SpaCy doesn't extract relationships
-            else:
-                entities = await self._extract_fallback(text, document_id, chunk_ids)
-                return entities, []  # Fallback doesn't extract relationships
-    
-    async def _extract_with_spacy(
-        self, 
-        text: str, 
-        document_id: str,
-        chunk_ids: Optional[List[str]] = None
-    ) -> List[Dict]:
-        """Extract entities using SpaCy NLP"""
-        
-        try:
-            doc = self.nlp(text)
-            entity_counts = Counter()
-            entities = []
-            
-            # Extract named entities
-            for ent in doc.ents:
-                if len(ent.text.strip()) < 2:  # Skip very short entities
-                    continue
-                    
-                entity_text = ent.text.strip()
-                entity_type = ent.label_
-                
-                # Skip common but not useful entities
-                if entity_type in ['DATE', 'TIME', 'PERCENT', 'MONEY', 'QUANTITY', 'ORDINAL', 'CARDINAL']:
-                    continue
-                
-                entity_counts[entity_text] += 1
-                
-                # Create entity ID based on text
-                entity_id = hashlib.md5(f"{entity_text}_{entity_type}".encode()).hexdigest()[:12]
-                
-                entity = {
-                    "id": entity_id,
-                    "name": entity_text,
-                    "entity_type": entity_type,
-                    "document_ids": [document_id],
-                    "chunk_ids": chunk_ids or [],
-                    "frequency": 1,  # Will be updated later
-                    "metadata": {
-                        "start_char": ent.start_char,
-                        "end_char": ent.end_char,
-                        "confidence": 1.0
-                    }
-                }
-                
-                entities.append(entity)
-            
-            # Update frequencies
-            entity_freq_map = {}
-            for entity in entities:
-                key = entity["name"]
-                if key in entity_freq_map:
-                    entity_freq_map[key]["frequency"] += 1
-                else:
-                    entity_freq_map[key] = entity
-            
-            # Return unique entities with correct frequencies
-            unique_entities = list(entity_freq_map.values())
-            
-            logger.info(f"Extracted {len(unique_entities)} unique entities using SpaCy")
-            return unique_entities
-            
-        except Exception as e:
-            logger.error(f"Error extracting entities with SpaCy: {e}")
-            return await self._extract_fallback(text, document_id, chunk_ids)
-    
-    async def _extract_fallback(
-        self, 
-        text: str, 
-        document_id: str,
-        chunk_ids: Optional[List[str]] = None
-    ) -> List[Dict]:
-        """Fallback entity extraction using simple patterns"""
-        
-        entities = []
-        text_lower = text.lower()
-        
-        # Simple keyword-based extraction
-        tech_keywords = {
-            "redis": "Technology",
-            "cache": "Concept",
-            "memory": "Concept", 
-            "database": "Technology",
-            "graph": "Concept",
-            "vector": "Concept",
-            "embedding": "Concept",
-            "search": "Concept",
-            "query": "Concept",
-            "document": "Concept",
-            "chunk": "Concept",
-            "entity": "Concept",
-            "relationship": "Concept",
-            "python": "Technology",
-            "fastapi": "Technology",
-            "supabase": "Technology",
-            "qdrant": "Technology",
-            "neo4j": "Technology"
-        }
-        
-        for keyword, entity_type in tech_keywords.items():
-            if keyword in text_lower:
-                entity_id = hashlib.md5(f"{keyword}_{entity_type}".encode()).hexdigest()[:12]
-                
-                entity = {
-                    "id": entity_id,
-                    "name": keyword.title(),
-                    "entity_type": entity_type,
-                    "document_ids": [document_id],
-                    "chunk_ids": chunk_ids or [],
-                    "frequency": text_lower.count(keyword),
-                    "metadata": {
-                        "extraction_method": "fallback",
-                        "confidence": 0.7
-                    }
-                }
-                
-                entities.append(entity)
-        
-        logger.info(f"Extracted {len(entities)} entities using fallback method")
-        return entities
+            # Return empty lists on error
+            return [], []
     
     async def extract_relationships(
         self, 
@@ -267,33 +122,10 @@ class EntityService:
         text: str,
         document_id: str
     ) -> List[Dict]:
-        """Extract relationships between entities"""
-        
-        # When using Claude, relationships are extracted by Claude itself
-        # This method is only called as a fallback when Claude doesn't return relationships
-        # or when explicitly using SpaCy/fallback methods
-        
-        # Return empty list - relationships should come from Claude extraction
-        # We don't want automatic relationship creation between all entity pairs
-        logger.info("Relationship extraction delegated to Claude AI")
+        """Extract relationships between entities - deprecated, Claude does this automatically"""
+        # This method is kept for backward compatibility but Claude handles relationships internally
+        logger.warning("extract_relationships called but Claude handles this automatically")
         return []
-    
-    def _determine_relationship_type(self, type1: str, type2: str) -> str:
-        """Determine relationship type based on entity types"""
-        
-        if type1 == type2:
-            return "similar_to"
-        
-        if (type1 == "Technology" and type2 == "Concept") or (type1 == "Concept" and type2 == "Technology"):
-            return "implements"
-        
-        if type1 == "PERSON" and type2 == "ORG":
-            return "works_for"
-        
-        if type1 == "ORG" and type2 == "GPE":
-            return "located_in"
-        
-        return "related_to"
 
 
 # Dependency injection for lazy initialization

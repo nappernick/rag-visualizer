@@ -134,7 +134,31 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({
         cyRef.current.destroy();
       }
     };
-  }, [entities, relationships, selectedEntityId]);
+  }, [entities, relationships]); // Remove selectedEntityId from dependencies
+  
+  // Update node highlighting when selection changes
+  useEffect(() => {
+    if (cyRef.current && selectedEntityId) {
+      // Reset all node styles
+      cyRef.current.nodes().removeClass('selected');
+      cyRef.current.nodes().style({
+        'background-color': '#666',
+        'border-width': 2,
+        'border-color': '#000',
+      });
+      
+      // Highlight selected node
+      const selectedNode = cyRef.current.getElementById(selectedEntityId);
+      if (selectedNode) {
+        selectedNode.addClass('selected');
+        selectedNode.style({
+          'background-color': '#ff6b6b',
+          'border-width': 3,
+          'border-color': '#ff0000',
+        });
+      }
+    }
+  }, [selectedEntityId]);
 
   const handleZoomIn = () => {
     if (cyRef.current) {

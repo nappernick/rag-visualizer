@@ -14,7 +14,7 @@ from ..db import get_session
 from ..core.temporal.temporal_utils import enrich_with_temporal_metadata
 from ..core.temporal.date_extractor import extract_temporal_metadata
 from ..core.chunking.semantic_chunker import SemanticChunker
-from ..core.chunking.hierarchical import HierarchicalChunker
+from ..core.chunking.hierarchical_chunker import HierarchicalChunker
 from ..core.chunking.base import StandardChunker
 from ..core.graph.claude_extractor import ClaudeGraphExtractor
 from ..models import Document as DocumentSchema
@@ -176,15 +176,19 @@ async def extract_graph(content: bytes, document_id: str, filename: str) -> tupl
     """Extract entities and relationships from document"""
     entity_service = get_entity_service()
     
-    # Extract entities and relationships using Claude
-    result = await entity_service.extract_entities_from_image(
-        image_data=content,
-        document_id=document_id,
-        chunk_id=f"{document_id}_full"
-    )
+    # Decode content to text for entity extraction
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        # If it's binary content (like an image), skip entity extraction for now
+        return [], []
     
-    entities = result.get("entities", [])
-    relationships = result.get("relationships", [])
+    # Extract entities and relationships
+    entities, relationships = await entity_service.extract_entities(
+        text=text,
+        document_id=document_id,
+        chunk_ids=[f"{document_id}_full"]
+    )
     
     return entities, relationships
 

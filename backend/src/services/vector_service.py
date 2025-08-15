@@ -1,168 +1,104 @@
 """
-Vector storage service using Qdrant
+Improved Vector storage service using Qdrant with robust connection management
+This version has better error handling and retry logic compared to the original.
 """
 import os
 from typing import List, Dict, Optional, Any
 import logging
-from qdrant_client import QdrantClient
+from uuid import uuid4
 from qdrant_client.models import (
-    Distance, 
-    VectorParams, 
     PointStruct,
     Filter,
     FieldCondition,
     MatchValue,
-    SearchRequest,
     UpdateStatus
 )
 import numpy as np
-from uuid import uuid4
+
+from .qdrant_connection_manager import get_qdrant_connection_manager
 
 logger = logging.getLogger(__name__)
 
 
 class VectorService:
-    """Service for managing vector storage in Qdrant"""
+    """Service for managing vector storage in Qdrant with improved reliability"""
     
     def __init__(self):
-        self.client = None
-        self.initialized = False
-        self.collection_name = "rag_visualizer_chunks"  # Updated collection name
-        self.vector_size = 1536  # OpenAI text-embedding-3-small dimension
+        """Initialize the vector service with connection manager."""
+        self.conn_manager = get_qdrant_connection_manager()
+        self.collection_name = self.conn_manager.collection_name
+        self.vector_size = self.conn_manager.vector_size
+        self.initialized = self.conn_manager.initialized
         
-        # Try to initialize Qdrant client
-        self._initialize_client()
+        if self.initialized:
+            logger.info(f"Vector service initialized with collection '{self.collection_name}'")
+        else:
+            logger.warning("Vector service initialization failed - will retry on operations")
     
-    def _initialize_client(self):
-        """Initialize Qdrant client with proper fallback handling"""
-        qdrant_url = os.getenv("QDRANT_URL", "")
-        qdrant_api_key = os.getenv("QDRANT_API_KEY", "")
-        
-        # Try cloud Qdrant first if credentials available
-        if qdrant_url and qdrant_api_key:
-            try:
-                # Clean up URL if needed (remove port for cloud)
-                if ":6333" in qdrant_url:
-                    qdrant_url = qdrant_url.replace(":6333", "")
-                
-                logger.info(f"Connecting to Qdrant Cloud at: {qdrant_url}")
-                self.client = QdrantClient(
-                    url=qdrant_url,
-                    api_key=qdrant_api_key,
-                    timeout=30,
-                    https=True,
-                    prefer_grpc=False  # Use REST API
-                )
-                
-                # Test connection
-                collections = self.client.get_collections()
-                self.initialized = True
-                logger.info(f"✅ Connected to Qdrant Cloud successfully")
-                
-                # Ensure collection exists
-                self._ensure_collection()
-                return
-                
-            except Exception as e:
-                logger.warning(f"Failed to connect to Qdrant Cloud: {e}")
-                self.client = None
-        
-        # Try local Qdrant if enabled
-        if os.getenv("ENABLE_QDRANT_LOCAL", "false").lower() == "true":
-            try:
-                logger.info("Attempting local Qdrant connection...")
-                self.client = QdrantClient(
-                    host=os.getenv("QDRANT_HOST", "localhost"),
-                    port=int(os.getenv("QDRANT_PORT", "6333")),
-                    timeout=10
-                )
-                
-                # Test connection
-                collections = self.client.get_collections()
-                self.initialized = True
-                logger.info("✅ Connected to local Qdrant successfully")
-                
-                # Ensure collection exists
-                self._ensure_collection()
-                return
-                
-            except Exception as e:
-                logger.warning(f"Failed to connect to local Qdrant: {e}")
-                self.client = None
-        
-        # No Qdrant available
-        if not self.initialized:
-            logger.info("⚠️ Qdrant not available - vector operations will be mocked")
+    @property
+    def client(self):
+        """Get the Qdrant client from connection manager."""
+        return self.conn_manager.client
     
-    def _ensure_collection(self):
-        """Ensure the collection exists in Qdrant"""
+    def _ensure_initialized(self) -> bool:
+        """Ensure the service is initialized before operations."""
         if not self.initialized:
-            return
-        
-        try:
-            collections = self.client.get_collections().collections
-            collection_names = [c.name for c in collections]
-            
-            if self.collection_name not in collection_names:
-                # Detect vector size from environment
-                embedding_model = os.getenv("EMBEDDING_MODEL", "openai")
-                if embedding_model == "openai":
-                    self.vector_size = 1536  # text-embedding-3-small
-                else:
-                    self.vector_size = 768  # sentence-transformers default
-                
-                self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=self.vector_size,
-                        distance=Distance.COSINE
-                    )
-                )
-                logger.info(f"✅ Created collection '{self.collection_name}' with vector size {self.vector_size}")
-            else:
-                # Get existing collection info
-                collection_info = self.client.get_collection(self.collection_name)
-                if hasattr(collection_info.config.params, 'vectors'):
-                    self.vector_size = collection_info.config.params.vectors.size
-                logger.info(f"✅ Using existing collection '{self.collection_name}' with vector size {self.vector_size}")
-        except Exception as e:
-            logger.error(f"Error ensuring collection: {e}")
+            self.initialized = self.conn_manager.ensure_connected()
+        return self.initialized
     
     async def store_vectors(self, chunks: List[Dict], embeddings: List[List[float]]) -> bool:
-        """Store chunk vectors in Qdrant"""
-        if not chunks or not embeddings:
+        """
+        Store chunk vectors in Qdrant with retry logic.
+        
+        Args:
+            chunks: List of chunk dictionaries
+            embeddings: List of embedding vectors
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._ensure_initialized():
+            logger.error("Cannot store vectors - service not initialized")
             return False
         
-        if not self.initialized:
-            logger.info("Qdrant not available - skipping vector storage")
-            return True  # Return success to not block the flow
+        if not chunks or not embeddings:
+            logger.warning("No chunks or embeddings to store")
+            return False
         
         if len(chunks) != len(embeddings):
-            logger.error("Chunks and embeddings length mismatch")
+            logger.error(f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) length mismatch")
             return False
         
-        try:
+        @self.conn_manager.with_retry
+        def _store():
             points = []
             for chunk, embedding in zip(chunks, embeddings):
+                # Generate unique ID for the point
                 point_id = str(uuid4())
                 
-                # Store chunk metadata as payload
+                # Prepare payload with all chunk metadata
                 payload = {
-                    "chunk_id": chunk["id"],
-                    "document_id": chunk["document_id"],
-                    "content": chunk["content"],
+                    "chunk_id": chunk.get("id", str(uuid4())),
+                    "document_id": chunk.get("document_id", ""),
+                    "content": chunk.get("content", ""),
                     "chunk_index": chunk.get("chunk_index", 0),
                     "chunk_type": chunk.get("chunk_type", "standard"),
+                    "position": chunk.get("position", 0),
                     "created_at": chunk.get("created_at", ""),
-                    "doc_type": chunk.get("metadata", {}).get("doc_type", "default")
                 }
                 
-                # Add temporal metadata if available
-                if "metadata" in chunk:
-                    if "temporal_score" in chunk["metadata"]:
-                        payload["temporal_score"] = chunk["metadata"]["temporal_score"]
-                    if "created_at_ms" in chunk["metadata"]:
-                        payload["created_at_ms"] = chunk["metadata"]["created_at_ms"]
+                # Add document type from metadata
+                metadata = chunk.get("metadata", {})
+                if metadata:
+                    payload["doc_type"] = metadata.get("doc_type", "default")
+                    
+                    # Add temporal metadata if available
+                    if "temporal_score" in metadata:
+                        payload["temporal_score"] = metadata["temporal_score"]
+                    if "created_at_ms" in metadata:
+                        payload["created_at_ms"] = metadata["created_at_ms"]
+                    if "document_date" in metadata:
+                        payload["document_date"] = metadata["document_date"]
                 
                 points.append(PointStruct(
                     id=point_id,
@@ -170,7 +106,7 @@ class VectorService:
                     payload=payload
                 ))
             
-            # Upload points to Qdrant
+            # Upload points to Qdrant with wait for completion
             operation_info = self.client.upsert(
                 collection_name=self.collection_name,
                 wait=True,
@@ -178,14 +114,16 @@ class VectorService:
             )
             
             if operation_info.status == UpdateStatus.COMPLETED:
-                logger.info(f"Stored {len(points)} vectors in Qdrant")
+                logger.info(f"Successfully stored {len(points)} vectors in Qdrant")
                 return True
             else:
                 logger.error(f"Failed to store vectors: {operation_info}")
                 return False
-                
+        
+        try:
+            return _store()
         except Exception as e:
-            logger.error(f"Error storing vectors: {e}")
+            logger.error(f"Error storing vectors after retries: {e}")
             return False
     
     async def search_similar(
@@ -194,14 +132,35 @@ class VectorService:
         limit: int = 10,
         document_id: Optional[str] = None,
         doc_type: Optional[str] = None,
-        score_threshold: float = 0.0
+        score_threshold: float = 0.0,
+        offset: int = 0,
+        with_vectors: bool = False,
+        exact: bool = False,
+        ef: Optional[int] = None
     ) -> List[Dict]:
-        """Search for similar chunks in Qdrant"""
-        if not self.initialized:
-            logger.info("Qdrant not available - returning empty results")
+        """
+        Search for similar chunks in Qdrant with retry logic.
+        
+        Args:
+            query_embedding: Query vector
+            limit: Maximum number of results
+            document_id: Filter by document ID
+            doc_type: Filter by document type
+            score_threshold: Minimum similarity score
+            offset: Number of results to skip
+            with_vectors: Whether to return vectors with results
+            exact: Use exact search instead of approximate (slower but more accurate)
+            ef: HNSW search precision (higher = more accurate but slower)
+            
+        Returns:
+            List of similar chunks with scores
+        """
+        if not self._ensure_initialized():
+            logger.error("Cannot search - service not initialized")
             return []
         
-        try:
+        @self.conn_manager.with_retry
+        def _search():
             # Build filter conditions
             must_conditions = []
             
@@ -221,6 +180,15 @@ class VectorService:
                     )
                 )
             
+            # Build search params for optimization
+            search_params = {}
+            if exact:
+                search_params["exact"] = True
+                logger.debug("Using exact search (slower but more accurate)")
+            if ef is not None:
+                search_params["hnsw_ef"] = ef
+                logger.debug(f"Using custom HNSW ef={ef}")
+            
             # Perform search
             search_filter = Filter(must=must_conditions) if must_conditions else None
             
@@ -228,8 +196,12 @@ class VectorService:
                 collection_name=self.collection_name,
                 query_vector=query_embedding,
                 limit=limit,
+                offset=offset,
                 query_filter=search_filter,
-                score_threshold=score_threshold
+                score_threshold=score_threshold if score_threshold > 0 else None,
+                with_payload=True,
+                with_vectors=with_vectors,
+                search_params=search_params if search_params else None
             )
             
             # Format results
@@ -239,30 +211,255 @@ class VectorService:
                     "chunk_id": hit.payload.get("chunk_id"),
                     "document_id": hit.payload.get("document_id"),
                     "content": hit.payload.get("content"),
-                    "score": hit.score,
+                    "score": float(hit.score),
                     "chunk_index": hit.payload.get("chunk_index", 0),
+                    "position": hit.payload.get("position", 0),
                     "chunk_type": hit.payload.get("chunk_type", "standard"),
                     "temporal_score": hit.payload.get("temporal_score", 1.0),
                     "metadata": {
                         "doc_type": hit.payload.get("doc_type", "default"),
-                        "created_at": hit.payload.get("created_at", "")
+                        "created_at": hit.payload.get("created_at", ""),
+                        "document_date": hit.payload.get("document_date", "")
                     }
                 }
                 results.append(result)
             
             logger.info(f"Found {len(results)} similar chunks")
             return results
-            
+        
+        try:
+            return _search()
         except Exception as e:
-            logger.error(f"Error searching similar chunks: {e}")
+            logger.error(f"Error searching similar chunks after retries: {e}")
+            return []
+    
+    async def batch_search_similar(
+        self,
+        query_embeddings: List[List[float]],
+        limit: int = 10,
+        score_threshold: float = 0.0,
+        **kwargs
+    ) -> List[List[Dict]]:
+        """
+        Batch search for multiple queries efficiently.
+        
+        Args:
+            query_embeddings: List of query vectors
+            limit: Maximum number of results per query
+            score_threshold: Minimum similarity score
+            **kwargs: Additional search parameters
+            
+        Returns:
+            List of result lists (one per query)
+        """
+        if not self._ensure_initialized():
+            logger.error("Cannot search - service not initialized")
+            return []
+        
+        @self.conn_manager.with_retry
+        def _batch_search():
+            from qdrant_client.models import SearchBatch, SearchRequest
+            
+            # Build batch of search requests
+            searches = []
+            for embedding in query_embeddings:
+                searches.append(SearchRequest(
+                    vector=embedding,
+                    limit=limit,
+                    score_threshold=score_threshold if score_threshold > 0 else None,
+                    with_payload=True
+                ))
+            
+            # Execute batch search
+            batch_results = self.client.search_batch(
+                collection_name=self.collection_name,
+                requests=searches
+            )
+            
+            # Format results for each query
+            all_results = []
+            for search_result in batch_results:
+                results = []
+                for hit in search_result:
+                    result = {
+                        "chunk_id": hit.payload.get("chunk_id"),
+                        "document_id": hit.payload.get("document_id"),
+                        "content": hit.payload.get("content"),
+                        "score": float(hit.score),
+                        "chunk_index": hit.payload.get("chunk_index", 0),
+                        "position": hit.payload.get("position", 0),
+                        "chunk_type": hit.payload.get("chunk_type", "standard"),
+                        "temporal_score": hit.payload.get("temporal_score", 1.0),
+                        "metadata": {
+                            "doc_type": hit.payload.get("doc_type", "default"),
+                            "created_at": hit.payload.get("created_at", ""),
+                            "document_date": hit.payload.get("document_date", "")
+                        }
+                    }
+                    results.append(result)
+                all_results.append(results)
+            
+            logger.info(f"Batch searched {len(query_embeddings)} queries")
+            return all_results
+        
+        try:
+            return _batch_search()
+        except Exception as e:
+            logger.error(f"Error in batch search after retries: {e}")
+            return []
+    
+    async def hybrid_search(
+        self,
+        query_text: str,
+        query_embedding: List[float],
+        limit: int = 10,
+        keyword_weight: float = 0.3,
+        vector_weight: float = 0.7,
+        **kwargs
+    ) -> List[Dict]:
+        """
+        Hybrid search combining keyword and semantic search.
+        
+        Args:
+            query_text: Text query for keyword matching
+            query_embedding: Query vector for semantic search
+            limit: Maximum number of results
+            keyword_weight: Weight for keyword matches (0-1)
+            vector_weight: Weight for semantic matches (0-1)
+            **kwargs: Additional search parameters
+            
+        Returns:
+            Combined and re-ranked results
+        """
+        if not self._ensure_initialized():
+            logger.error("Cannot search - service not initialized")
+            return []
+        
+        @self.conn_manager.with_retry
+        def _hybrid_search():
+            # Perform vector search
+            vector_results = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_embedding,
+                limit=limit * 2,  # Get more results for merging
+                with_payload=True
+            )
+            
+            # Perform text search using scroll with text filter
+            # This searches for query terms in the content payload
+            query_terms = query_text.lower().split()
+            
+            # For keyword search, we need to use scroll with conditions
+            # Note: Qdrant doesn't have native full-text search, so we approximate
+            keyword_results = []
+            for term in query_terms[:3]:  # Limit to first 3 terms for performance
+                scroll_result = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="content",
+                                match=MatchValue(value=term)
+                            )
+                        ]
+                    ),
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                keyword_results.extend(scroll_result[0])
+            
+            # Combine and re-rank results
+            combined_scores = {}
+            seen_chunks = set()
+            
+            # Process vector results
+            for hit in vector_results:
+                chunk_id = hit.payload.get("chunk_id")
+                if chunk_id:
+                    combined_scores[chunk_id] = {
+                        "vector_score": float(hit.score) * vector_weight,
+                        "keyword_score": 0.0,
+                        "payload": hit.payload,
+                        "total_score": float(hit.score) * vector_weight
+                    }
+                    seen_chunks.add(chunk_id)
+            
+            # Process keyword results
+            for point in keyword_results:
+                chunk_id = point.payload.get("chunk_id")
+                if chunk_id:
+                    # Calculate keyword relevance based on term frequency
+                    content = point.payload.get("content", "").lower()
+                    term_count = sum(1 for term in query_terms if term in content)
+                    keyword_score = (term_count / len(query_terms)) * keyword_weight
+                    
+                    if chunk_id in combined_scores:
+                        # Update existing entry
+                        combined_scores[chunk_id]["keyword_score"] = keyword_score
+                        combined_scores[chunk_id]["total_score"] += keyword_score
+                    else:
+                        # New entry from keyword search
+                        combined_scores[chunk_id] = {
+                            "vector_score": 0.0,
+                            "keyword_score": keyword_score,
+                            "payload": point.payload,
+                            "total_score": keyword_score
+                        }
+            
+            # Sort by combined score and format results
+            sorted_results = sorted(
+                combined_scores.items(),
+                key=lambda x: x[1]["total_score"],
+                reverse=True
+            )[:limit]
+            
+            results = []
+            for chunk_id, scores in sorted_results:
+                result = {
+                    "chunk_id": chunk_id,
+                    "document_id": scores["payload"].get("document_id"),
+                    "content": scores["payload"].get("content"),
+                    "score": scores["total_score"],
+                    "vector_score": scores["vector_score"],
+                    "keyword_score": scores["keyword_score"],
+                    "chunk_index": scores["payload"].get("chunk_index", 0),
+                    "chunk_type": scores["payload"].get("chunk_type", "standard"),
+                    "metadata": {
+                        "doc_type": scores["payload"].get("doc_type", "default"),
+                        "search_type": "hybrid",
+                        "weights": {
+                            "keyword": keyword_weight,
+                            "vector": vector_weight
+                        }
+                    }
+                }
+                results.append(result)
+            
+            logger.info(f"Hybrid search found {len(results)} results")
+            return results
+        
+        try:
+            return _hybrid_search()
+        except Exception as e:
+            logger.error(f"Error in hybrid search: {e}")
             return []
     
     async def get_chunk_vector(self, chunk_id: str) -> Optional[List[float]]:
-        """Retrieve vector for a specific chunk"""
-        if not self.initialized:
+        """
+        Retrieve vector for a specific chunk with retry logic.
+        
+        Args:
+            chunk_id: ID of the chunk
+            
+        Returns:
+            Vector if found, None otherwise
+        """
+        if not self._ensure_initialized():
             return None
         
-        try:
+        @self.conn_manager.with_retry
+        def _get_vector():
             # Search by chunk_id in payload
             result = self.client.scroll(
                 collection_name=self.collection_name,
@@ -278,21 +475,32 @@ class VectorService:
                 with_vectors=True
             )
             
-            if result[0]:
+            if result[0]:  # Check if we got any results
                 return result[0][0].vector
             return None
-            
+        
+        try:
+            return _get_vector()
         except Exception as e:
-            logger.error(f"Error getting chunk vector: {e}")
+            logger.error(f"Error getting chunk vector after retries: {e}")
             return None
     
     async def delete_document_vectors(self, document_id: str) -> bool:
-        """Delete all vectors for a document"""
-        if not self.initialized:
+        """
+        Delete all vectors for a document with retry logic.
+        
+        Args:
+            document_id: Document ID to delete vectors for
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._ensure_initialized():
             return False
         
-        try:
-            self.client.delete(
+        @self.conn_manager.with_retry
+        def _delete():
+            result = self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=Filter(
                     must=[
@@ -301,30 +509,75 @@ class VectorService:
                             match=MatchValue(value=document_id)
                         )
                     ]
-                )
+                ),
+                wait=True
             )
+            
             logger.info(f"Deleted vectors for document {document_id}")
             return True
-            
-        except Exception as e:
-            logger.error(f"Error deleting document vectors: {e}")
-            return False
-    
-    async def clear_all(self) -> bool:
-        """Clear all vectors from the collection"""
-        if not self.initialized:
-            return False
         
         try:
+            return _delete()
+        except Exception as e:
+            logger.error(f"Error deleting document vectors after retries: {e}")
+            return False
+    
+    async def get_collection_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the collection.
+        
+        Returns:
+            Dictionary with collection statistics
+        """
+        if not self._ensure_initialized():
+            return {"error": "Service not initialized"}
+        
+        @self.conn_manager.with_retry
+        def _get_stats():
+            collection_info = self.client.get_collection(self.collection_name)
+            return {
+                "collection_name": self.collection_name,
+                "vector_size": collection_info.config.params.vectors.size,
+                "points_count": collection_info.points_count,
+                "indexed_vectors_count": collection_info.indexed_vectors_count,
+                "status": collection_info.status,
+                "optimizer_status": collection_info.optimizer_status.status if collection_info.optimizer_status else "unknown"
+            }
+        
+        try:
+            return _get_stats()
+        except Exception as e:
+            logger.error(f"Error getting collection stats: {e}")
+            return {"error": str(e)}
+    
+    async def clear_all(self) -> bool:
+        """
+        Clear all vectors from the collection.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._ensure_initialized():
+            return False
+        
+        @self.conn_manager.with_retry
+        def _clear():
             # Delete and recreate collection
             self.client.delete_collection(collection_name=self.collection_name)
-            self._ensure_collection()
+            self.conn_manager._ensure_collection()
             logger.info("Cleared all vectors from Qdrant")
             return True
-            
+        
+        try:
+            return _clear()
         except Exception as e:
-            logger.error(f"Error clearing vectors: {e}")
+            logger.error(f"Error clearing vectors after retries: {e}")
             return False
+    
+    def close(self):
+        """Close the connection manager."""
+        if self.conn_manager:
+            self.conn_manager.close()
 
 
 # Use centralized service manager
