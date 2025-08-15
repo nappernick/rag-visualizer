@@ -37,12 +37,12 @@ function App() {
     loadDocuments();
   }, []);
   
-  // Load all data when switching to 'all' view or when documents change
+  // Load all data when switching to 'all' view, demo tab, or when documents change
   useEffect(() => {
-    if (viewMode === 'all' && documents.length > 0) {
+    if ((viewMode === 'all' || activeTab === 'demo') && documents.length > 0) {
       loadAllData();
     }
-  }, [viewMode, documents.length]);
+  }, [viewMode, activeTab, documents.length]);
 
   const loadDocuments = async () => {
     try {
@@ -1009,9 +1009,9 @@ function App() {
         {activeTab === 'demo' && (
           <DemoTab
             documents={documents}
-            chunks={chunks}
-            entities={entities}
-            relationships={relationships}
+            chunks={Object.values(allChunks).flat()}
+            entities={Object.values(allEntities).flat()}
+            relationships={Object.values(allRelationships).flat()}
             loading={loading}
             onDocumentSelect={handleSelectDocument}
           />
