@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import cytoscape from 'cytoscape';
 // @ts-ignore
 import fcose from 'cytoscape-fcose';
@@ -22,11 +22,44 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const prevDataRef = useRef<{entities: Entity[], relationships: Relationship[]} | null>(null);
+
+  // Check if data actually changed (not just selection)
+  const dataChanged = useMemo(() => {
+    if (!prevDataRef.current) return true;
+    
+    const entitiesChanged = 
+      entities.length !== prevDataRef.current.entities.length ||
+      entities.some((e, i) => e.id !== prevDataRef.current!.entities[i]?.id);
+    
+    const relationshipsChanged = 
+      relationships.length !== prevDataRef.current.relationships.length ||
+      relationships.some((r, i) => 
+        r.source_entity_id !== prevDataRef.current!.relationships[i]?.source_entity_id ||
+        r.target_entity_id !== prevDataRef.current!.relationships[i]?.target_entity_id
+      );
+    
+    return entitiesChanged || relationshipsChanged;
+  }, [entities, relationships]);
 
   useEffect(() => {
     if (!containerRef.current || entities.length === 0) return;
 
-    // Prepare graph data
+    // Only recreate if data actually changed
+    if (cyRef.current && !dataChanged) {
+      return;
+    }
+
+    // Clean up existing instance if it exists
+    if (cyRef.current) {
+      cyRef.current.destroy();
+      cyRef.current = null;
+    }
+
+    // Store current data for comparison
+    prevDataRef.current = { entities, relationships };
+
+    // Prepare graph data for initial creation
     const nodes = entities.map(entity => ({
       data: {
         id: entity.id,
@@ -132,30 +165,46 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({
     return () => {
       if (cyRef.current) {
         cyRef.current.destroy();
+        cyRef.current = null;
+        prevDataRef.current = null;
       }
     };
-  }, [entities, relationships]); // Remove selectedEntityId from dependencies
+  }, [dataChanged, entities, relationships]); // Re-create only when data actually changes
   
   // Update node highlighting when selection changes
   useEffect(() => {
-    if (cyRef.current && selectedEntityId) {
-      // Reset all node styles
-      cyRef.current.nodes().removeClass('selected');
-      cyRef.current.nodes().style({
-        'background-color': '#666',
-        'border-width': 2,
+    if (!cyRef.current) return;
+    
+    // Reset all node styles to their original colors
+    cyRef.current.nodes().forEach((node: any) => {
+      const type = node.data('type');
+      const colors: Record<string, string> = {
+        person: '#3b82f6',
+        organization: '#10b981',
+        location: '#f59e0b',
+        product: '#8b5cf6',
+        model: '#ef4444',
+        framework: '#ec4899',
+        database: '#06b6d4',
+        concept: '#6b7280',
+      };
+      node.style({
+        'background-color': colors[type] || '#9ca3af',
+        'border-width': 0,
         'border-color': '#000',
       });
-      
-      // Highlight selected node
+    });
+    
+    // Highlight selected node if it exists
+    if (selectedEntityId) {
       const selectedNode = cyRef.current.getElementById(selectedEntityId);
-      if (selectedNode) {
-        selectedNode.addClass('selected');
+      if (selectedNode && selectedNode.length > 0) {
         selectedNode.style({
-          'background-color': '#ff6b6b',
-          'border-width': 3,
-          'border-color': '#ff0000',
+          'border-width': 4,
+          'border-color': '#fbbf24',
+          'border-style': 'solid',
         });
+        // Don't auto-center - let user control the view
       }
     }
   }, [selectedEntityId]);

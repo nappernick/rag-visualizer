@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import { ChunkVisualizer } from './components/ChunkVisualizer/ChunkVisualizer';
 import { GraphViewer } from './components/GraphViewer/GraphViewer';
@@ -320,13 +320,25 @@ function App() {
   };
 
   // Entity selection handler
-  const handleEntitySelect = (entityId: string) => {
+  const handleEntitySelect = useCallback((entityId: string) => {
     setSelectedEntityId(entityId);
-    const entity = entities.find(e => e.id === entityId);
+    
+    // Find entity in current view mode
+    let entity = null;
+    if (viewMode === 'single') {
+      entity = entities.find(e => e.id === entityId);
+    } else {
+      // Search across all entities
+      for (const docEntities of Object.values(allEntities)) {
+        entity = docEntities.find(e => e.id === entityId);
+        if (entity) break;
+      }
+    }
+    
     if (entity) {
       console.log('Selected entity:', entity);
     }
-  };
+  }, [viewMode, entities, allEntities]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -917,16 +929,30 @@ function App() {
                     </div>
                   </div>
                 )}
-                {selectedEntityId && (
-                  <div className="mt-6 p-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200">
-                    <h3 className="font-semibold text-lg mb-3 flex items-center">
-                      Selected Entity
-                    </h3>
-                    <pre className="text-sm bg-white p-4 rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
-                      {JSON.stringify(entities.find(e => e.id === selectedEntityId), null, 2)}
-                    </pre>
-                  </div>
-                )}
+                {selectedEntityId && (() => {
+                  // Find the selected entity based on view mode
+                  let selectedEntity = null;
+                  if (viewMode === 'single') {
+                    selectedEntity = entities.find(e => e.id === selectedEntityId);
+                  } else {
+                    // Search across all entities
+                    for (const docEntities of Object.values(allEntities)) {
+                      selectedEntity = docEntities.find(e => e.id === selectedEntityId);
+                      if (selectedEntity) break;
+                    }
+                  }
+                  
+                  return selectedEntity ? (
+                    <div className="mt-6 p-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl border border-gray-200">
+                      <h3 className="font-semibold text-lg mb-3 flex items-center">
+                        Selected Entity
+                      </h3>
+                      <pre className="text-sm bg-white p-4 rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
+                        {JSON.stringify(selectedEntity, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null;
+                })()}
               </div>
             )}
           </div>
