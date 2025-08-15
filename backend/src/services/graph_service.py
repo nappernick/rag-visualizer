@@ -525,8 +525,9 @@ class GraphService:
         
         try:
             with self.driver.session() as session:
-                result = session.run("""
-                    MATCH path = (start:Entity {id: $entity_id})-[:RELATED*1..$max_hops]-(related:Entity)
+                # Build query string with literal max_hops value to avoid Neo4j parameter issue
+                query = f"""
+                    MATCH path = (start:Entity {{id: $entity_id}})-[:RELATED*1..{max_hops}]-(related:Entity)
                     WITH related, min(length(path)) as distance
                     RETURN DISTINCT 
                            related.id as id, 
@@ -535,7 +536,8 @@ class GraphService:
                            distance
                     ORDER BY distance
                     LIMIT 50
-                """, entity_id=entity_id, max_hops=max_hops)
+                """
+                result = session.run(query, entity_id=entity_id)
                 
                 entities = []
                 for record in result:

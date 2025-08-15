@@ -7,6 +7,32 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
+# Check if services are already running
+if curl -s http://localhost:8642/health > /dev/null 2>&1; then
+    echo "✅ Backend is already running on port 8642"
+    BACKEND_ALREADY_RUNNING=true
+else
+    BACKEND_ALREADY_RUNNING=false
+fi
+
+if curl -s http://localhost:5892 > /dev/null 2>&1; then
+    echo "✅ Frontend is already running on port 5892"
+    FRONTEND_ALREADY_RUNNING=true
+else
+    FRONTEND_ALREADY_RUNNING=false
+fi
+
+# If both are already running, just show status and exit
+if [ "$BACKEND_ALREADY_RUNNING" = true ] && [ "$FRONTEND_ALREADY_RUNNING" = true ]; then
+    echo ""
+    echo "✅ System is already running!"
+    echo "   Backend:  http://localhost:8642"
+    echo "   Frontend: http://localhost:5892"
+    echo ""
+    echo "🛑 To restart: ./scripts/stop.sh && ./scripts/start.sh"
+    exit 0
+fi
+
 # Kill any existing processes on our ports
 echo "Cleaning up existing processes..."
 pkill -f "uvicorn.*8642" 2>/dev/null

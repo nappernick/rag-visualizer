@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { QueryInput } from './QueryInput';
 import { ResultsPanel } from './ResultsPanel';
 import { DocumentPreview } from './DocumentPreview';
+import { GraphResultPreview } from './GraphResultPreview';
 import { QueryDecomposition } from './QueryDecomposition';
 import { RetrievalSummary } from './RetrievalSummary';
 import { demoApi } from '../../../services/demoApi';
@@ -127,12 +128,35 @@ export const SearchInterface: React.FC<SearchInterfaceProps> = ({
   }, [query, searchMode, showDecomposition, onSearchComplete]);
 
   const handleResultSelect = (result: any) => {
+    console.log('Result selected:', result);
+    console.log('Looking for document_id:', result.document_id);
+    console.log('Available documents:', documents.map(d => d.id));
+    
     setSelectedResult(result);
     
-    // Find and preview the document
-    const doc = documents.find(d => d.id === result.document_id);
+    // Find and preview the document - try both document_id and doc_id
+    const doc = documents.find(d => 
+      d.id === result.document_id || 
+      d.id === result.doc_id ||
+      d.id === result.metadata?.document_id
+    );
+    
     if (doc) {
+      console.log('Found document:', doc);
       setPreviewDocument(doc);
+    } else {
+      console.log('No matching document found');
+      // If no document found, create a preview from the result content
+      const previewDoc: Document = {
+        id: result.document_id || result.id,
+        title: result.document_title || 'Search Result',
+        content: result.content || '',
+        doc_type: 'text',
+        status: 'completed',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      setPreviewDocument(previewDoc);
     }
   };
 
@@ -275,18 +299,34 @@ export const SearchInterface: React.FC<SearchInterfaceProps> = ({
           />
         </div>
 
-        {/* Document Preview - 1 column */}
+        {/* Document/Graph Preview - 1 column */}
         <div className="lg:col-span-1">
-          {previewDocument ? (
-            <DocumentPreview
-              document={previewDocument}
-              highlightedChunk={selectedResult?.chunk_id}
-              onOpen={() => handleDocumentOpen(previewDocument)}
-            />
+          {selectedResult ? (
+            // Show graph preview for graph results, document preview for others
+            selectedResult.source === 'graph' ? (
+              <GraphResultPreview
+                result={selectedResult}
+                query={query}
+                onOpen={() => console.log('Open graph explorer')}
+              />
+            ) : (
+              previewDocument ? (
+                <DocumentPreview
+                  document={previewDocument}
+                  highlightedChunk={selectedResult?.chunk_id}
+                  onOpen={() => handleDocumentOpen(previewDocument)}
+                />
+              ) : (
+                <div className="bg-gray-50 rounded-xl p-8 text-center border-2 border-dashed border-gray-300">
+                  <div className="text-gray-400 text-6xl mb-4">📄</div>
+                  <p className="text-gray-600">Document preview unavailable</p>
+                </div>
+              )
+            )
           ) : (
             <div className="bg-gray-50 rounded-xl p-8 text-center border-2 border-dashed border-gray-300">
               <div className="text-gray-400 text-6xl mb-4">📄</div>
-              <p className="text-gray-600">Select a result to preview the document</p>
+              <p className="text-gray-600">Select a result to preview</p>
             </div>
           )}
         </div>
