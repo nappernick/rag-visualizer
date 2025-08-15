@@ -333,7 +333,7 @@ Return a JSON object with this structure:
 }}"""
 
         response = bedrock_client.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-20250514-v1:0',
+            modelId='us.anthropic.claude-3-7-sonnet-20250219-v1:0',
             contentType='application/json',
             accept='application/json',
             body=json.dumps({
@@ -509,7 +509,7 @@ Return JSON:
 }}"""
 
             response = bedrock_client.invoke_model(
-                modelId='us.anthropic.claude-sonnet-4-20250514-v1:0',
+                modelId='us.anthropic.claude-3-7-sonnet-20250219-v1:0',
                 contentType='application/json',
                 accept='application/json',
                 body=json.dumps({
@@ -623,7 +623,7 @@ Return JSON:
 }}"""
 
         response = bedrock_client.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-20250514-v1:0',
+            modelId='us.anthropic.claude-3-7-sonnet-20250219-v1:0',
             contentType='application/json',
             accept='application/json',
             body=json.dumps({
@@ -669,7 +669,7 @@ Options:
 Return only one word: vector, graph, or hybrid"""
 
         response = bedrock_client.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-20250514-v1:0',
+            modelId='us.anthropic.claude-3-7-sonnet-20250219-v1:0',
             contentType='application/json',
             accept='application/json',
             body=json.dumps({
